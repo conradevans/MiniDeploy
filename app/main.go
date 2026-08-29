@@ -75,7 +75,31 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	appName := repoName(req.RepoURL)
+
+	if appName == "" {
+		http.Error(w, "invalid repository URL", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := store.Get(appName); err == nil {
+		http.Error(
+			w,
+			"deployment already exists; use redeploy",
+			http.StatusConflict,
+		)
+		return
+	} else if !errors.Is(err, ErrDeploymentNotFound) {
+		http.Error(
+			w,
+			"failed to check deployment metadata",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	record, err := deployRepository(req.RepoURL)
+
 	if err != nil {
 		log.Printf("deployment failed: %v", err)
 		http.Error(w, "deployment failed", http.StatusInternalServerError)
@@ -86,9 +110,7 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func redeployHandler(w http.ResponseWriter, r *http.Request) {
-	appName := r.PathValue("app")
-
-	record, err := getDeployment(appName)
+	record, err := getDeployment(r.PathValue("app"))
 
 	if errors.Is(err, ErrDeploymentNotFound) {
 		http.Error(w, "deployment not found", http.StatusNotFound)
@@ -96,16 +118,28 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "failed to load deployment", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
-	log.Printf("Redeploying %s from %s", record.App, record.RepoURL)
+	newRecord, err := safeRedeploy(record)
 
-	newRecord, err := deployRepository(record.RepoURL)
 	if err != nil {
-		log.Printf("redeployment failed for %s: %v", record.App, err)
-		http.Error(w, "redeployment failed", http.StatusInternalServerError)
+		log.Printf(
+			"safe redeployment failed for %s: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"redeployment failed; previous version kept running",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -113,6 +147,9 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deployRepository(repoURL string) (DeploymentRecord, error) {
+	deployMu.Lock()
+	defer deployMu.Unlock()
+
 	appName := repoName(repoURL)
 
 	if appName == "" {
@@ -120,10 +157,8 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	}
 
 	deployPath := filepath.Join(deploymentsDir, appName)
-	imageName := "minideploy-" + appName
+	imageName := versionedImageName(appName)
 	containerName := "minideploy-" + appName
-
-	log.Printf("Deploying %s", repoURL)
 
 	if err := os.MkdirAll(deploymentsDir, 0755); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
@@ -147,7 +182,11 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		deployPath,
 	); err != nil {
 		log.Printf("git clone failed:\n%s", output)
-		return DeploymentRecord{}, fmt.Errorf("git clone failed: %w", err)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"git clone failed: %w",
+			err,
+		)
 	}
 
 	if output, err := runCommand(
@@ -159,92 +198,53 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		".",
 	); err != nil {
 		log.Printf("docker build failed:\n%s", output)
-		return DeploymentRecord{}, fmt.Errorf("docker build failed: %w", err)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"docker build failed: %w",
+			err,
+		)
 	}
 
-	deployMu.Lock()
-	defer deployMu.Unlock()
-
-	_, _ = runCommand(
-		"",
-		"docker",
-		"rm",
-		"-f",
-		containerName,
+	port, err := findAvailablePort(
+		minDeployPort,
+		maxDeployPort,
 	)
 
-	port, err := findAvailablePort(minDeployPort, maxDeployPort)
 	if err != nil {
 		return DeploymentRecord{}, err
 	}
 
-	if output, err := runCommand(
-		"",
-		"docker",
-		"run",
-		"-d",
-		"--name",
+	if err := startManagedContainer(
 		containerName,
-		"-p",
-		fmt.Sprintf("%d:80", port),
 		imageName,
+		port,
 	); err != nil {
-		log.Printf("docker run failed:\n%s", output)
-		return DeploymentRecord{}, fmt.Errorf("docker run failed: %w", err)
+		return DeploymentRecord{}, err
 	}
 
 	if err := verifyContainerStartup(containerName); err != nil {
-		logs, _ := runCommand(
+		logs, _ := containerLogs(containerName, 100)
+
+		_, _ = runCommand(
 			"",
 			"docker",
-			"logs",
-			"--tail",
-			"100",
+			"rm",
+			"-f",
 			containerName,
 		)
 
-		log.Printf(
-			"container %s failed startup verification: %v\n%s",
-			containerName,
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			imageName,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"container failed startup verification: %w; logs: %s",
 			err,
 			logs,
-		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			containerName,
-		)
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"container failed startup verification: %w",
-			err,
-		)
-	}
-
-	if output, err := runCommand(
-		"",
-		"docker",
-		"update",
-		"--restart",
-		"unless-stopped",
-		containerName,
-	); err != nil {
-		log.Printf("failed to set restart policy:\n%s", output)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			containerName,
-		)
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"failed to set restart policy: %w",
-			err,
 		)
 	}
 
@@ -265,6 +265,14 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 			containerName,
 		)
 
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			imageName,
+		)
+
 		return DeploymentRecord{}, fmt.Errorf(
 			"save deployment metadata: %w",
 			err,
@@ -274,11 +282,450 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	return record, nil
 }
 
-func deploymentsHandler(w http.ResponseWriter, r *http.Request) {
+func safeRedeploy(
+	old DeploymentRecord,
+) (DeploymentRecord, error) {
+	deployMu.Lock()
+	defer deployMu.Unlock()
+
+	version := fmt.Sprintf(
+		"%d",
+		time.Now().UnixNano(),
+	)
+
+	candidatePath := filepath.Join(
+		deploymentsDir,
+		old.App+"-candidate-"+version,
+	)
+
+	currentPath := filepath.Join(
+		deploymentsDir,
+		old.App,
+	)
+
+	newImage := fmt.Sprintf(
+		"minideploy-%s:%s",
+		old.App,
+		version,
+	)
+
+	candidateContainer := fmt.Sprintf(
+		"minideploy-%s-candidate-%s",
+		old.App,
+		version,
+	)
+
+	defer os.RemoveAll(candidatePath)
+
+	log.Printf(
+		"Building candidate for %s while current version stays live",
+		old.App,
+	)
+
+	if output, err := runCommand(
+		"",
+		"git",
+		"clone",
+		old.RepoURL,
+		candidatePath,
+	); err != nil {
+		log.Printf(
+			"candidate git clone failed:\n%s",
+			output,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"git clone candidate: %w",
+			err,
+		)
+	}
+
+	if output, err := runCommand(
+		candidatePath,
+		"docker",
+		"build",
+		"-t",
+		newImage,
+		".",
+	); err != nil {
+		log.Printf(
+			"candidate Docker build failed:\n%s",
+			output,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"build candidate image: %w",
+			err,
+		)
+	}
+
+	candidatePort, err := findAvailablePort(
+		minDeployPort,
+		maxDeployPort,
+	)
+
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"allocate candidate port: %w",
+			err,
+		)
+	}
+
+	if output, err := runCommand(
+		"",
+		"docker",
+		"run",
+		"-d",
+		"--name",
+		candidateContainer,
+		"-p",
+		fmt.Sprintf(
+			"%d:80",
+			candidatePort,
+		),
+		newImage,
+	); err != nil {
+		log.Printf(
+			"candidate Docker run failed:\n%s",
+			output,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"start candidate container: %w",
+			err,
+		)
+	}
+
+	if err := verifyContainerStartup(
+		candidateContainer,
+	); err != nil {
+		logs, _ := containerLogs(
+			candidateContainer,
+			100,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			candidateContainer,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"candidate failed startup verification: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
+	log.Printf(
+		"Candidate for %s passed startup verification",
+		old.App,
+	)
+
+	_, _ = runCommand(
+		"",
+		"docker",
+		"rm",
+		"-f",
+		candidateContainer,
+	)
+
+	oldWasRunning :=
+		containerStatus(old.Container) == "running"
+
+	if containerExists(old.Container) {
+		if output, err := runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			old.Container,
+		); err != nil {
+			log.Printf(
+				"failed to remove old container:\n%s",
+				output,
+			)
+
+			return DeploymentRecord{}, fmt.Errorf(
+				"remove old container: %w",
+				err,
+			)
+		}
+	}
+
+	if err := startManagedContainer(
+		old.Container,
+		newImage,
+		old.Port,
+	); err != nil {
+		rollbackErr := restorePreviousContainer(
+			old,
+			oldWasRunning,
+		)
+
+		if rollbackErr != nil {
+			log.Printf(
+				"rollback also failed for %s: %v",
+				old.App,
+				rollbackErr,
+			)
+		}
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"start new live container: %w",
+			err,
+		)
+	}
+
+	if err := verifyContainerStartup(
+		old.Container,
+	); err != nil {
+		logs, _ := containerLogs(
+			old.Container,
+			100,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			old.Container,
+		)
+
+		rollbackErr := restorePreviousContainer(
+			old,
+			oldWasRunning,
+		)
+
+		if rollbackErr != nil {
+			log.Printf(
+				"rollback also failed for %s: %v",
+				old.App,
+				rollbackErr,
+			)
+		}
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"new live container failed verification: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
+	newRecord := old
+	newRecord.Image = newImage
+
+	if err := store.Save(newRecord); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			old.Container,
+		)
+
+		rollbackErr := restorePreviousContainer(
+			old,
+			oldWasRunning,
+		)
+
+		if rollbackErr != nil {
+			log.Printf(
+				"rollback also failed for %s: %v",
+				old.App,
+				rollbackErr,
+			)
+		}
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"save new deployment metadata: %w",
+			err,
+		)
+	}
+
+	if err := replaceDeploymentSource(
+		currentPath,
+		candidatePath,
+	); err != nil {
+		log.Printf(
+			"warning: failed to replace deployment source for %s: %v",
+			old.App,
+			err,
+		)
+	}
+
+	if old.Image != "" &&
+		old.Image != newImage {
+		if output, err := runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			old.Image,
+		); err != nil {
+			log.Printf(
+				"warning: failed to remove old image %s:\n%s",
+				old.Image,
+				output,
+			)
+		}
+	}
+
+	log.Printf(
+		"Safe redeployment of %s completed",
+		old.App,
+	)
+
+	return newRecord, nil
+}
+
+func startManagedContainer(
+	containerName string,
+	imageName string,
+	port int,
+) error {
+	output, err := runCommand(
+		"",
+		"docker",
+		"run",
+		"-d",
+		"--restart",
+		"unless-stopped",
+		"--name",
+		containerName,
+		"-p",
+		fmt.Sprintf(
+			"%d:80",
+			port,
+		),
+		imageName,
+	)
+
+	if err != nil {
+		log.Printf(
+			"docker run failed:\n%s",
+			output,
+		)
+
+		return fmt.Errorf(
+			"docker run: %w",
+			err,
+		)
+	}
+
+	return nil
+}
+
+func restorePreviousContainer(
+	record DeploymentRecord,
+	shouldRun bool,
+) error {
+	if record.Image == "" {
+		return fmt.Errorf(
+			"previous image is unknown",
+		)
+	}
+
+	if err := startManagedContainer(
+		record.Container,
+		record.Image,
+		record.Port,
+	); err != nil {
+		return err
+	}
+
+	if !shouldRun {
+		if output, err := runCommand(
+			"",
+			"docker",
+			"stop",
+			record.Container,
+		); err != nil {
+			log.Printf(
+				"failed to restore stopped state:\n%s",
+				output,
+			)
+
+			return err
+		}
+	}
+
+	return nil
+}
+
+func replaceDeploymentSource(
+	currentPath string,
+	candidatePath string,
+) error {
+	if err := os.RemoveAll(currentPath); err != nil {
+		return err
+	}
+
+	if err := os.Rename(
+		candidatePath,
+		currentPath,
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func deploymentsHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	records, err := store.List()
 
 	if err != nil {
-		log.Printf("failed to load deployments: %v", err)
+		log.Printf(
+			"failed to load deployments: %v",
+			err,
+		)
+
 		http.Error(
 			w,
 			"failed to retrieve deployments",
@@ -287,7 +734,11 @@ func deploymentsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deployments := make([]DeploymentResponse, 0, len(records))
+	deployments := make(
+		[]DeploymentResponse,
+		0,
+		len(records),
+	)
 
 	for _, record := range records {
 		deployments = append(
@@ -296,14 +747,30 @@ func deploymentsHandler(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	writeJSON(w, http.StatusOK, deployments)
+	writeJSON(
+		w,
+		http.StatusOK,
+		deployments,
+	)
 }
 
-func logsHandler(w http.ResponseWriter, r *http.Request) {
-	record, err := getDeployment(r.PathValue("app"))
+func logsHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	record, err := getDeployment(
+		r.PathValue("app"),
+	)
 
-	if errors.Is(err, ErrDeploymentNotFound) {
-		http.Error(w, "deployment not found", http.StatusNotFound)
+	if errors.Is(
+		err,
+		ErrDeploymentNotFound,
+	) {
+		http.Error(
+			w,
+			"deployment not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -325,13 +792,9 @@ func logsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := runCommand(
-		"",
-		"docker",
-		"logs",
-		"--tail",
-		"200",
+	output, err := containerLogs(
 		record.Container,
+		200,
 	)
 
 	if err != nil {
@@ -349,18 +812,34 @@ func logsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, LogsResponse{
-		App:       record.App,
-		Container: record.Container,
-		Logs:      output,
-	})
+	writeJSON(
+		w,
+		http.StatusOK,
+		LogsResponse{
+			App:       record.App,
+			Container: record.Container,
+			Logs:      output,
+		},
+	)
 }
 
-func restartDeploymentHandler(w http.ResponseWriter, r *http.Request) {
-	record, err := getDeployment(r.PathValue("app"))
+func restartDeploymentHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	record, err := getDeployment(
+		r.PathValue("app"),
+	)
 
-	if errors.Is(err, ErrDeploymentNotFound) {
-		http.Error(w, "deployment not found", http.StatusNotFound)
+	if errors.Is(
+		err,
+		ErrDeploymentNotFound,
+	) {
+		http.Error(
+			w,
+			"deployment not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -404,18 +883,34 @@ func restartDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, ActionResponse{
-		Status:    "running",
-		App:       record.App,
-		Container: record.Container,
-	})
+	writeJSON(
+		w,
+		http.StatusOK,
+		ActionResponse{
+			Status:    "running",
+			App:       record.App,
+			Container: record.Container,
+		},
+	)
 }
 
-func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
-	record, err := getDeployment(r.PathValue("app"))
+func deleteDeploymentHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	record, err := getDeployment(
+		r.PathValue("app"),
+	)
 
-	if errors.Is(err, ErrDeploymentNotFound) {
-		http.Error(w, "deployment not found", http.StatusNotFound)
+	if errors.Is(
+		err,
+		ErrDeploymentNotFound,
+	) {
+		http.Error(
+			w,
+			"deployment not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -453,9 +948,14 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	deployPath := filepath.Join(deploymentsDir, record.App)
+	deployPath := filepath.Join(
+		deploymentsDir,
+		record.App,
+	)
 
-	if err := os.RemoveAll(deployPath); err != nil {
+	if err := os.RemoveAll(
+		deployPath,
+	); err != nil {
 		log.Printf(
 			"failed to remove source for %s: %v",
 			record.App,
@@ -463,21 +963,25 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	if output, err := runCommand(
-		"",
-		"docker",
-		"image",
-		"rm",
-		record.Image,
-	); err != nil {
-		log.Printf(
-			"failed to remove image %s:\n%s",
+	if record.Image != "" {
+		if output, err := runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
 			record.Image,
-			output,
-		)
+		); err != nil {
+			log.Printf(
+				"failed to remove image %s:\n%s",
+				record.Image,
+				output,
+			)
+		}
 	}
 
-	if err := store.Delete(record.App); err != nil {
+	if err := store.Delete(
+		record.App,
+	); err != nil {
 		log.Printf(
 			"failed to remove metadata for %s: %v",
 			record.App,
@@ -492,14 +996,20 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, ActionResponse{
-		Status:    "deleted",
-		App:       record.App,
-		Container: record.Container,
-	})
+	writeJSON(
+		w,
+		http.StatusOK,
+		ActionResponse{
+			Status:    "deleted",
+			App:       record.App,
+			Container: record.Container,
+		},
+	)
 }
 
-func verifyContainerStartup(containerName string) error {
+func verifyContainerStartup(
+	containerName string,
+) error {
 	const checks = 3
 
 	for i := 0; i < checks; i++ {
@@ -515,7 +1025,10 @@ func verifyContainerStartup(containerName string) error {
 		)
 
 		if err != nil {
-			return fmt.Errorf("inspect container: %w", err)
+			return fmt.Errorf(
+				"inspect container: %w",
+				err,
+			)
 		}
 
 		status := strings.TrimSpace(output)
@@ -531,15 +1044,34 @@ func verifyContainerStartup(containerName string) error {
 	return nil
 }
 
-func getDeployment(app string) (DeploymentRecord, error) {
+func containerLogs(
+	containerName string,
+	tail int,
+) (string, error) {
+	return runCommand(
+		"",
+		"docker",
+		"logs",
+		"--tail",
+		fmt.Sprintf("%d", tail),
+		containerName,
+	)
+}
+
+func getDeployment(
+	app string,
+) (DeploymentRecord, error) {
 	if app == "" {
-		return DeploymentRecord{}, ErrDeploymentNotFound
+		return DeploymentRecord{},
+			ErrDeploymentNotFound
 	}
 
 	return store.Get(app)
 }
 
-func deploymentResponse(record DeploymentRecord) DeploymentResponse {
+func deploymentResponse(
+	record DeploymentRecord,
+) DeploymentResponse {
 	return DeploymentResponse{
 		App:       record.App,
 		RepoURL:   record.RepoURL,
@@ -550,7 +1082,9 @@ func deploymentResponse(record DeploymentRecord) DeploymentResponse {
 	}
 }
 
-func containerExists(containerName string) bool {
+func containerExists(
+	containerName string,
+) bool {
 	_, err := runCommand(
 		"",
 		"docker",
@@ -561,7 +1095,9 @@ func containerExists(containerName string) bool {
 	return err == nil
 }
 
-func containerStatus(containerName string) string {
+func containerStatus(
+	containerName string,
+) string {
 	output, err := runCommand(
 		"",
 		"docker",
@@ -578,11 +1114,17 @@ func containerStatus(containerName string) string {
 	return strings.TrimSpace(output)
 }
 
-func findAvailablePort(start, end int) (int, error) {
+func findAvailablePort(
+	start int,
+	end int,
+) (int, error) {
 	for port := start; port <= end; port++ {
 		listener, err := net.Listen(
 			"tcp",
-			fmt.Sprintf(":%d", port),
+			fmt.Sprintf(
+				":%d",
+				port,
+			),
 		)
 
 		if err != nil {
@@ -590,6 +1132,7 @@ func findAvailablePort(start, end int) (int, error) {
 		}
 
 		listener.Close()
+
 		return port, nil
 	}
 
@@ -600,11 +1143,30 @@ func findAvailablePort(start, end int) (int, error) {
 	)
 }
 
-func repoName(repoURL string) string {
-	repoURL = strings.TrimSuffix(repoURL, "/")
+func versionedImageName(
+	appName string,
+) string {
+	return fmt.Sprintf(
+		"minideploy-%s:%d",
+		appName,
+		time.Now().UnixNano(),
+	)
+}
+
+func repoName(
+	repoURL string,
+) string {
+	repoURL = strings.TrimSuffix(
+		repoURL,
+		"/",
+	)
 
 	name := filepath.Base(repoURL)
-	name = strings.TrimSuffix(name, ".git")
+
+	name = strings.TrimSuffix(
+		name,
+		".git",
+	)
 
 	if name == "" || name == "." {
 		return ""
@@ -618,7 +1180,10 @@ func runCommand(
 	name string,
 	args ...string,
 ) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(
+		name,
+		args...,
+	)
 
 	if dir != "" {
 		cmd.Dir = dir
@@ -634,15 +1199,27 @@ func writeJSON(
 	status int,
 	value any,
 ) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(
+		"Content-Type",
+		"application/json",
+	)
+
 	w.WriteHeader(status)
 
-	if err := json.NewEncoder(w).Encode(value); err != nil {
-		log.Printf("failed to encode response: %v", err)
+	if err := json.NewEncoder(w).Encode(
+		value,
+	); err != nil {
+		log.Printf(
+			"failed to encode response: %v",
+			err,
+		)
 	}
 }
 
-func dashboardHandler(w http.ResponseWriter, r *http.Request) {
+func dashboardHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -658,23 +1235,45 @@ func dashboardHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /health", healthHandler)
-	mux.HandleFunc("POST /deploy", deployHandler)
-	mux.HandleFunc("GET /deployments", deploymentsHandler)
-	mux.HandleFunc("GET /deployments/{app}/logs", logsHandler)
+	mux.HandleFunc(
+		"GET /health",
+		healthHandler,
+	)
+
+	mux.HandleFunc(
+		"POST /deploy",
+		deployHandler,
+	)
+
+	mux.HandleFunc(
+		"GET /deployments",
+		deploymentsHandler,
+	)
+
+	mux.HandleFunc(
+		"GET /deployments/{app}/logs",
+		logsHandler,
+	)
+
 	mux.HandleFunc(
 		"POST /deployments/{app}/restart",
 		restartDeploymentHandler,
 	)
+
 	mux.HandleFunc(
 		"POST /deployments/{app}/redeploy",
 		redeployHandler,
 	)
+
 	mux.HandleFunc(
 		"DELETE /deployments/{app}",
 		deleteDeploymentHandler,
 	)
-	mux.HandleFunc("GET /", dashboardHandler)
+
+	mux.HandleFunc(
+		"GET /",
+		dashboardHandler,
+	)
 
 	address := "127.0.0.1:9000"
 
@@ -683,7 +1282,10 @@ func main() {
 		address,
 	)
 
-	if err := http.ListenAndServe(address, mux); err != nil {
+	if err := http.ListenAndServe(
+		address,
+		mux,
+	); err != nil {
 		log.Fatal(err)
 	}
 }

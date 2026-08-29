@@ -53,6 +53,11 @@ func routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"POST /webhooks/github",
+		githubWebhookHandler,
+	)
+
+	mux.HandleFunc(
 		"GET /",
 		dashboardHandler,
 	)

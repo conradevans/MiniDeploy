@@ -23,8 +23,12 @@ const (
 )
 
 var (
-	deployMu sync.Mutex
-	store    DeploymentStore = NewJSONStore(metadataPath)
+	deployMu     sync.Mutex
+	store        DeploymentStore = NewJSONStore(metadataPath)
+	historyStore                 = NewJSONHistoryStore(
+		"/srv/minideploy/data/deployment-history.json",
+		3,
+	)
 )
 
 type HealthResponse struct {
@@ -54,6 +58,11 @@ type ActionResponse struct {
 	Status    string `json:"status"`
 	App       string `json:"app"`
 	Container string `json:"container"`
+}
+
+type HistoryResponse struct {
+	App      string              `json:"app"`
+	Versions []DeploymentVersion `json:"versions"`
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -694,21 +703,19 @@ func safeRedeploy(
 		)
 	}
 
-	if old.Image != "" &&
-		old.Image != newImage {
-		if output, err := runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			old.Image,
-		); err != nil {
-			log.Printf(
-				"warning: failed to remove old image %s:\n%s",
-				old.Image,
-				output,
-			)
-		}
+	pruned, historyErr := historyStore.Push(old)
+
+	if historyErr != nil {
+		log.Printf(
+			"warning: failed to save deployment history for %s: %v",
+			old.App,
+			historyErr,
+		)
+	} else {
+		removePrunedHistoryImages(
+			pruned,
+			newImage,
+		)
 	}
 
 	log.Printf(
@@ -809,6 +816,455 @@ func replaceDeploymentSource(
 	}
 
 	return nil
+}
+
+func deploymentHistoryHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	app := r.PathValue("app")
+
+	if _, err := getDeployment(app); err != nil {
+		if errors.Is(err, ErrDeploymentNotFound) {
+			http.Error(
+				w,
+				"deployment not found",
+				http.StatusNotFound,
+			)
+			return
+		}
+
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	versions, err := historyStore.List(app)
+
+	if err != nil {
+		log.Printf(
+			"failed to load history for %s: %v",
+			app,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to load deployment history",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		HistoryResponse{
+			App:      app,
+			Versions: versions,
+		},
+	)
+}
+
+func rollbackDeploymentHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	app := r.PathValue("app")
+
+	current, err := getDeployment(app)
+
+	if errors.Is(err, ErrDeploymentNotFound) {
+		http.Error(
+			w,
+			"deployment not found",
+			http.StatusNotFound,
+		)
+		return
+	}
+
+	if err != nil {
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	record, err := rollbackDeployment(current)
+
+	if errors.Is(err, ErrNoRollbackVersion) {
+		http.Error(
+			w,
+			"no previous deployment available",
+			http.StatusConflict,
+		)
+		return
+	}
+
+	if err != nil {
+		log.Printf(
+			"rollback failed for %s: %v",
+			app,
+			err,
+		)
+
+		http.Error(
+			w,
+			"rollback failed; current version kept running",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		deploymentResponse(record),
+	)
+}
+
+var ErrNoRollbackVersion = errors.New(
+	"no rollback version available",
+)
+
+func rollbackDeployment(
+	current DeploymentRecord,
+) (DeploymentRecord, error) {
+	deployMu.Lock()
+	defer deployMu.Unlock()
+
+	versions, err := historyStore.List(current.App)
+
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"load deployment history: %w",
+			err,
+		)
+	}
+
+	if len(versions) == 0 {
+		return DeploymentRecord{}, ErrNoRollbackVersion
+	}
+
+	previous := versions[0]
+
+	if _, err := runCommand(
+		"",
+		"docker",
+		"image",
+		"inspect",
+		previous.Image,
+	); err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"previous Docker image is unavailable: %w",
+			err,
+		)
+	}
+
+	versionID := fmt.Sprintf(
+		"%d",
+		time.Now().UnixNano(),
+	)
+
+	candidateName := fmt.Sprintf(
+		"minideploy-%s-rollback-%s",
+		current.App,
+		versionID,
+	)
+
+	candidatePort, err := findAvailablePort(
+		minDeployPort,
+		maxDeployPort,
+	)
+
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"allocate rollback candidate port: %w",
+			err,
+		)
+	}
+
+	output, err := runCommand(
+		"",
+		"docker",
+		"run",
+		"-d",
+		"--name",
+		candidateName,
+		"-p",
+		fmt.Sprintf(
+			"%d:80",
+			candidatePort,
+		),
+		previous.Image,
+	)
+
+	if err != nil {
+		log.Printf(
+			"rollback candidate failed to start:\n%s",
+			output,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"start rollback candidate: %w",
+			err,
+		)
+	}
+
+	cleanupCandidate := func() {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			candidateName,
+		)
+	}
+
+	if err := verifyContainerStartup(
+		candidateName,
+	); err != nil {
+		logs, _ := containerLogs(
+			candidateName,
+			100,
+		)
+
+		cleanupCandidate()
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"rollback candidate failed startup verification: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
+	if err := verifyHTTPHealth(
+		candidatePort,
+	); err != nil {
+		logs, _ := containerLogs(
+			candidateName,
+			100,
+		)
+
+		cleanupCandidate()
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"rollback candidate failed HTTP verification: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
+	cleanupCandidate()
+
+	currentWasRunning :=
+		containerStatus(current.Container) == "running"
+
+	if containerExists(current.Container) {
+		if output, err := runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			current.Container,
+		); err != nil {
+			log.Printf(
+				"failed to remove current container:\n%s",
+				output,
+			)
+
+			return DeploymentRecord{}, fmt.Errorf(
+				"remove current container: %w",
+				err,
+			)
+		}
+	}
+
+	if err := startManagedContainer(
+		current.Container,
+		previous.Image,
+		current.Port,
+	); err != nil {
+		restoreErr := restorePreviousContainer(
+			current,
+			currentWasRunning,
+		)
+
+		if restoreErr != nil {
+			log.Printf(
+				"failed to restore current deployment: %v",
+				restoreErr,
+			)
+		}
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"start rollback version: %w",
+			err,
+		)
+	}
+
+	if err := verifyContainerStartup(
+		current.Container,
+	); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			current.Container,
+		)
+
+		restoreErr := restorePreviousContainer(
+			current,
+			currentWasRunning,
+		)
+
+		if restoreErr != nil {
+			log.Printf(
+				"failed to restore current deployment: %v",
+				restoreErr,
+			)
+		}
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"rolled-back container failed startup verification: %w",
+			err,
+		)
+	}
+
+	if err := verifyHTTPHealth(
+		current.Port,
+	); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			current.Container,
+		)
+
+		restoreErr := restorePreviousContainer(
+			current,
+			currentWasRunning,
+		)
+
+		if restoreErr != nil {
+			log.Printf(
+				"failed to restore current deployment: %v",
+				restoreErr,
+			)
+		}
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"rolled-back container failed HTTP verification: %w",
+			err,
+		)
+	}
+
+	newRecord := DeploymentRecord{
+		App:       current.App,
+		RepoURL:   previous.RepoURL,
+		Container: current.Container,
+		Image:     previous.Image,
+		Port:      current.Port,
+	}
+
+	if err := store.Save(newRecord); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			current.Container,
+		)
+
+		restoreErr := restorePreviousContainer(
+			current,
+			currentWasRunning,
+		)
+
+		if restoreErr != nil {
+			log.Printf(
+				"failed to restore current deployment: %v",
+				restoreErr,
+			)
+		}
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"save rollback metadata: %w",
+			err,
+		)
+	}
+
+	updatedHistory := append(
+		[]DeploymentVersion{
+			deploymentVersion(current),
+		},
+		versions[1:]...,
+	)
+
+	pruned, historyErr := historyStore.Set(
+		current.App,
+		updatedHistory,
+	)
+
+	if historyErr != nil {
+		log.Printf(
+			"warning: rollback succeeded but history update failed for %s: %v",
+			current.App,
+			historyErr,
+		)
+	} else {
+		removePrunedHistoryImages(
+			pruned,
+			newRecord.Image,
+		)
+	}
+
+	log.Printf(
+		"Rolled back %s to image %s",
+		current.App,
+		previous.Image,
+	)
+
+	return newRecord, nil
+}
+
+func removePrunedHistoryImages(
+	versions []DeploymentVersion,
+	keepImages ...string,
+) {
+	keep := make(map[string]bool)
+
+	for _, image := range keepImages {
+		keep[image] = true
+	}
+
+	for _, version := range versions {
+		if version.Image == "" ||
+			keep[version.Image] {
+			continue
+		}
+
+		if output, err := runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			version.Image,
+		); err != nil {
+			log.Printf(
+				"warning: failed to prune old image %s:\n%s",
+				version.Image,
+				output,
+			)
+		}
+	}
 }
 
 func deploymentsHandler(
@@ -1055,6 +1511,49 @@ func deleteDeploymentHandler(
 	); err != nil {
 		log.Printf(
 			"failed to remove source for %s: %v",
+			record.App,
+			err,
+		)
+	}
+
+	versions, historyErr := historyStore.List(
+		record.App,
+	)
+
+	if historyErr != nil {
+		log.Printf(
+			"warning: failed to load history during delete for %s: %v",
+			record.App,
+			historyErr,
+		)
+	} else {
+		for _, version := range versions {
+			if version.Image == "" ||
+				version.Image == record.Image {
+				continue
+			}
+
+			if output, err := runCommand(
+				"",
+				"docker",
+				"image",
+				"rm",
+				version.Image,
+			); err != nil {
+				log.Printf(
+					"warning: failed to remove historical image %s:\n%s",
+					version.Image,
+					output,
+				)
+			}
+		}
+	}
+
+	if err := historyStore.Clear(
+		record.App,
+	); err != nil {
+		log.Printf(
+			"warning: failed to clear history for %s: %v",
 			record.App,
 			err,
 		)
@@ -1399,6 +1898,16 @@ func main() {
 	mux.HandleFunc(
 		"GET /deployments/{app}/logs",
 		logsHandler,
+	)
+
+	mux.HandleFunc(
+		"GET /deployments/{app}/history",
+		deploymentHistoryHandler,
+	)
+
+	mux.HandleFunc(
+		"POST /deployments/{app}/rollback",
+		rollbackDeploymentHandler,
 	)
 
 	mux.HandleFunc(

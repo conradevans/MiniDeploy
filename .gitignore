@@ -19,3 +19,6 @@ main.go.*
 
 # Local refactor backups
 *.pre-*
+
+# Generated reverse-proxy routes
+caddy/

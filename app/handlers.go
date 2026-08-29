@@ -83,6 +83,20 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"proxy sync failed after deploying %s: %v",
+			record.App,
+			err,
+		)
+		http.Error(
+			w,
+			"deployment succeeded but proxy sync failed",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, deploymentResponse(record))
 }
 
@@ -115,6 +129,20 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(
 			w,
 			"redeployment failed; previous version kept running",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"proxy sync failed after redeploying %s: %v",
+			newRecord.App,
+			err,
+		)
+		http.Error(
+			w,
+			"redeployment succeeded but proxy sync failed",
 			http.StatusInternalServerError,
 		)
 		return
@@ -221,6 +249,20 @@ func rollbackDeploymentHandler(
 		http.Error(
 			w,
 			"rollback failed; current version kept running",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"proxy sync failed after rolling back %s: %v",
+			record.App,
+			err,
+		)
+		http.Error(
+			w,
+			"rollback succeeded but proxy sync failed",
 			http.StatusInternalServerError,
 		)
 		return
@@ -553,6 +595,20 @@ func deleteDeploymentHandler(
 		http.Error(
 			w,
 			"failed to remove deployment metadata",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"proxy sync failed after deleting %s: %v",
+			record.App,
+			err,
+		)
+		http.Error(
+			w,
+			"deployment deleted but proxy sync failed",
 			http.StatusInternalServerError,
 		)
 		return

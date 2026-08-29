@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -125,11 +126,17 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	log.Printf("Deploying %s", repoURL)
 
 	if err := os.MkdirAll(deploymentsDir, 0755); err != nil {
-		return DeploymentRecord{}, fmt.Errorf("create deployment directory: %w", err)
+		return DeploymentRecord{}, fmt.Errorf(
+			"create deployment directory: %w",
+			err,
+		)
 	}
 
 	if err := os.RemoveAll(deployPath); err != nil {
-		return DeploymentRecord{}, fmt.Errorf("prepare deployment directory: %w", err)
+		return DeploymentRecord{}, fmt.Errorf(
+			"prepare deployment directory: %w",
+			err,
+		)
 	}
 
 	if output, err := runCommand(
@@ -176,8 +183,6 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		"docker",
 		"run",
 		"-d",
-		"--restart",
-		"unless-stopped",
 		"--name",
 		containerName,
 		"-p",
@@ -186,6 +191,61 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	); err != nil {
 		log.Printf("docker run failed:\n%s", output)
 		return DeploymentRecord{}, fmt.Errorf("docker run failed: %w", err)
+	}
+
+	if err := verifyContainerStartup(containerName); err != nil {
+		logs, _ := runCommand(
+			"",
+			"docker",
+			"logs",
+			"--tail",
+			"100",
+			containerName,
+		)
+
+		log.Printf(
+			"container %s failed startup verification: %v\n%s",
+			containerName,
+			err,
+			logs,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			containerName,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"container failed startup verification: %w",
+			err,
+		)
+	}
+
+	if output, err := runCommand(
+		"",
+		"docker",
+		"update",
+		"--restart",
+		"unless-stopped",
+		containerName,
+	); err != nil {
+		log.Printf("failed to set restart policy:\n%s", output)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			containerName,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"failed to set restart policy: %w",
+			err,
+		)
 	}
 
 	record := DeploymentRecord{
@@ -197,7 +257,13 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	}
 
 	if err := store.Save(record); err != nil {
-		_, _ = runCommand("", "docker", "rm", "-f", containerName)
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			containerName,
+		)
 
 		return DeploymentRecord{}, fmt.Errorf(
 			"save deployment metadata: %w",
@@ -213,7 +279,11 @@ func deploymentsHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("failed to load deployments: %v", err)
-		http.Error(w, "failed to retrieve deployments", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"failed to retrieve deployments",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -238,12 +308,20 @@ func logsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "failed to load deployment", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
 	if !containerExists(record.Container) {
-		http.Error(w, "deployment container not found", http.StatusNotFound)
+		http.Error(
+			w,
+			"deployment container not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -257,8 +335,17 @@ func logsHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		log.Printf("failed to retrieve logs for %s:\n%s", record.App, output)
-		http.Error(w, "failed to retrieve logs", http.StatusInternalServerError)
+		log.Printf(
+			"failed to retrieve logs for %s:\n%s",
+			record.App,
+			output,
+		)
+
+		http.Error(
+			w,
+			"failed to retrieve logs",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -278,12 +365,20 @@ func restartDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "failed to load deployment", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
 	if !containerExists(record.Container) {
-		http.Error(w, "deployment container not found", http.StatusNotFound)
+		http.Error(
+			w,
+			"deployment container not found",
+			http.StatusNotFound,
+		)
 		return
 	}
 
@@ -295,8 +390,17 @@ func restartDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
-		log.Printf("failed to restart %s:\n%s", record.App, output)
-		http.Error(w, "failed to restart deployment", http.StatusInternalServerError)
+		log.Printf(
+			"failed to restart %s:\n%s",
+			record.App,
+			output,
+		)
+
+		http.Error(
+			w,
+			"failed to restart deployment",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -316,7 +420,11 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "failed to load deployment", http.StatusInternalServerError)
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -330,8 +438,17 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		)
 
 		if err != nil {
-			log.Printf("failed to delete container %s:\n%s", record.App, output)
-			http.Error(w, "failed to delete deployment", http.StatusInternalServerError)
+			log.Printf(
+				"failed to delete container %s:\n%s",
+				record.App,
+				output,
+			)
+
+			http.Error(
+				w,
+				"failed to delete deployment",
+				http.StatusInternalServerError,
+			)
 			return
 		}
 	}
@@ -339,7 +456,11 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 	deployPath := filepath.Join(deploymentsDir, record.App)
 
 	if err := os.RemoveAll(deployPath); err != nil {
-		log.Printf("failed to remove source for %s: %v", record.App, err)
+		log.Printf(
+			"failed to remove source for %s: %v",
+			record.App,
+			err,
+		)
 	}
 
 	if output, err := runCommand(
@@ -349,12 +470,25 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		"rm",
 		record.Image,
 	); err != nil {
-		log.Printf("failed to remove image %s:\n%s", record.Image, output)
+		log.Printf(
+			"failed to remove image %s:\n%s",
+			record.Image,
+			output,
+		)
 	}
 
 	if err := store.Delete(record.App); err != nil {
-		log.Printf("failed to remove metadata for %s: %v", record.App, err)
-		http.Error(w, "failed to remove deployment metadata", http.StatusInternalServerError)
+		log.Printf(
+			"failed to remove metadata for %s: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to remove deployment metadata",
+			http.StatusInternalServerError,
+		)
 		return
 	}
 
@@ -363,6 +497,38 @@ func deleteDeploymentHandler(w http.ResponseWriter, r *http.Request) {
 		App:       record.App,
 		Container: record.Container,
 	})
+}
+
+func verifyContainerStartup(containerName string) error {
+	const checks = 3
+
+	for i := 0; i < checks; i++ {
+		time.Sleep(time.Second)
+
+		output, err := runCommand(
+			"",
+			"docker",
+			"inspect",
+			"-f",
+			"{{.State.Status}}",
+			containerName,
+		)
+
+		if err != nil {
+			return fmt.Errorf("inspect container: %w", err)
+		}
+
+		status := strings.TrimSpace(output)
+
+		if status != "running" {
+			return fmt.Errorf(
+				"container entered %q state",
+				status,
+			)
+		}
+	}
+
+	return nil
 }
 
 func getDeployment(app string) (DeploymentRecord, error) {
@@ -496,14 +662,26 @@ func main() {
 	mux.HandleFunc("POST /deploy", deployHandler)
 	mux.HandleFunc("GET /deployments", deploymentsHandler)
 	mux.HandleFunc("GET /deployments/{app}/logs", logsHandler)
-	mux.HandleFunc("POST /deployments/{app}/restart", restartDeploymentHandler)
-	mux.HandleFunc("POST /deployments/{app}/redeploy", redeployHandler)
-	mux.HandleFunc("DELETE /deployments/{app}", deleteDeploymentHandler)
+	mux.HandleFunc(
+		"POST /deployments/{app}/restart",
+		restartDeploymentHandler,
+	)
+	mux.HandleFunc(
+		"POST /deployments/{app}/redeploy",
+		redeployHandler,
+	)
+	mux.HandleFunc(
+		"DELETE /deployments/{app}",
+		deleteDeploymentHandler,
+	)
 	mux.HandleFunc("GET /", dashboardHandler)
 
 	address := "127.0.0.1:9000"
 
-	log.Printf("MiniDeploy API listening on http://%s", address)
+	log.Printf(
+		"MiniDeploy API listening on http://%s",
+		address,
+	)
 
 	if err := http.ListenAndServe(address, mux); err != nil {
 		log.Fatal(err)

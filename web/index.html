@@ -316,7 +316,7 @@ async function loadDeployments() {
                 <div class="actions">
                     <button
                         class="secondary"
-                        onclick="openApp(${app.port})"
+                        onclick="openApp('${escapeJS(app.app)}')"
                     >
                         Open
                     </button>

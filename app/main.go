@@ -248,6 +248,32 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		)
 	}
 
+	if err := verifyHTTPHealth(port); err != nil {
+		logs, _ := containerLogs(containerName, 100)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			containerName,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			imageName,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"container failed HTTP health check: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
 	record := DeploymentRecord{
 		App:       appName,
 		RepoURL:   repoURL,
@@ -435,8 +461,37 @@ func safeRedeploy(
 		)
 	}
 
+	if err := verifyHTTPHealth(candidatePort); err != nil {
+		logs, _ := containerLogs(
+			candidateContainer,
+			100,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			candidateContainer,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"candidate failed HTTP health check: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
 	log.Printf(
-		"Candidate for %s passed startup verification",
+		"Candidate for %s passed startup and HTTP health verification",
 		old.App,
 	)
 
@@ -542,6 +597,48 @@ func safeRedeploy(
 
 		return DeploymentRecord{}, fmt.Errorf(
 			"new live container failed verification: %w; logs: %s",
+			err,
+			logs,
+		)
+	}
+
+	if err := verifyHTTPHealth(old.Port); err != nil {
+		logs, _ := containerLogs(
+			old.Container,
+			100,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			old.Container,
+		)
+
+		rollbackErr := restorePreviousContainer(
+			old,
+			oldWasRunning,
+		)
+
+		if rollbackErr != nil {
+			log.Printf(
+				"rollback also failed for %s: %v",
+				old.App,
+				rollbackErr,
+			)
+		}
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"new live container failed HTTP health check: %w; logs: %s",
 			err,
 			logs,
 		)
@@ -1042,6 +1139,55 @@ func verifyContainerStartup(
 	}
 
 	return nil
+}
+
+func verifyHTTPHealth(port int) error {
+	const attempts = 5
+
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	url := fmt.Sprintf(
+		"http://127.0.0.1:%d/",
+		port,
+	)
+
+	var lastErr error
+
+	for i := 0; i < attempts; i++ {
+		response, err := client.Get(url)
+
+		if err != nil {
+			lastErr = err
+		} else {
+			response.Body.Close()
+
+			if response.StatusCode >= 200 &&
+				response.StatusCode < 400 {
+				return nil
+			}
+
+			lastErr = fmt.Errorf(
+				"received HTTP status %d",
+				response.StatusCode,
+			)
+		}
+
+		if i < attempts-1 {
+			time.Sleep(time.Second)
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("unknown health-check failure")
+	}
+
+	return fmt.Errorf(
+		"HTTP health check failed for %s: %w",
+		url,
+		lastErr,
+	)
 }
 
 func containerLogs(

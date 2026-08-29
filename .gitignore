@@ -6,3 +6,13 @@ dist/
 build/
 logs/
 *.log
+
+# MiniDeploy runtime
+bin/
+data/
+managed-deployments/
+deployments/
+
+# Backups
+*.bak
+main.go.*

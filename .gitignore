@@ -16,3 +16,6 @@ deployments/
 # Backups
 *.bak
 main.go.*
+
+# Local refactor backups
+*.pre-*

@@ -399,9 +399,9 @@ async function deployApp() {
     }
 }
 
-function openApp(port) {
+function openApp(app) {
     window.open(
-        `http://mini-server.local:${port}`,
+        `http://mini-server.local/${encodeURIComponent(app)}/`,
         "_blank"
     );
 }

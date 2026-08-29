@@ -15,16 +15,18 @@ func restorePreviousContainer(
 	record DeploymentRecord,
 	shouldRun bool,
 ) error {
+	record = normalizeDeploymentRecord(record)
 	if record.Image == "" {
 		return fmt.Errorf(
 			"previous image is unknown",
 		)
 	}
 
-	if err := startManagedContainer(
+	if err := startManagedContainerWithPort(
 		record.Container,
 		record.Image,
 		record.Port,
+		record.ContainerPort,
 	); err != nil {
 		return err
 	}
@@ -51,6 +53,8 @@ func restorePreviousContainer(
 func rollbackDeployment(
 	current DeploymentRecord,
 ) (DeploymentRecord, error) {
+	current = normalizeDeploymentRecord(current)
+
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
@@ -114,8 +118,9 @@ func rollbackDeployment(
 		candidateName,
 		"-p",
 		fmt.Sprintf(
-			"%d:80",
+			"%d:%d",
 			candidatePort,
+			current.ContainerPort,
 		),
 		previous.Image,
 	)
@@ -159,8 +164,9 @@ func rollbackDeployment(
 		)
 	}
 
-	if err := verifyHTTPHealth(
+	if err := verifyHTTPHealthPath(
 		candidatePort,
+		current.HealthPath,
 	); err != nil {
 		logs, _ := containerLogs(
 			candidateName,
@@ -201,10 +207,11 @@ func rollbackDeployment(
 		}
 	}
 
-	if err := startManagedContainer(
+	if err := startManagedContainerWithPort(
 		current.Container,
 		previous.Image,
 		current.Port,
+		current.ContainerPort,
 	); err != nil {
 		restoreErr := restorePreviousContainer(
 			current,
@@ -253,8 +260,9 @@ func rollbackDeployment(
 		)
 	}
 
-	if err := verifyHTTPHealth(
+	if err := verifyHTTPHealthPath(
 		current.Port,
+		current.HealthPath,
 	); err != nil {
 		_, _ = runCommand(
 			"",
@@ -283,11 +291,13 @@ func rollbackDeployment(
 	}
 
 	newRecord := DeploymentRecord{
-		App:       current.App,
-		RepoURL:   previous.RepoURL,
-		Container: current.Container,
-		Image:     previous.Image,
-		Port:      current.Port,
+		App:           current.App,
+		RepoURL:       previous.RepoURL,
+		Container:     current.Container,
+		Image:         previous.Image,
+		Port:          current.Port,
+		ContainerPort: current.ContainerPort,
+		HealthPath:    current.HealthPath,
 	}
 
 	if err := store.Save(newRecord); err != nil {

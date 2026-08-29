@@ -51,7 +51,31 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, err := deployRepository(req.RepoURL)
+	containerPort := normalizedContainerPort(
+		req.ContainerPort,
+	)
+
+	healthPath := normalizedHealthPath(
+		req.HealthPath,
+	)
+
+	if err := validateDeploymentConfig(
+		containerPort,
+		healthPath,
+	); err != nil {
+		http.Error(
+			w,
+			err.Error(),
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	record, err := deployRepository(
+		req.RepoURL,
+		containerPort,
+		healthPath,
+	)
 
 	if err != nil {
 		log.Printf("deployment failed: %v", err)
@@ -553,19 +577,29 @@ func getDeployment(
 			ErrDeploymentNotFound
 	}
 
-	return store.Get(app)
+	record, err := store.Get(app)
+
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+
+	return normalizeDeploymentRecord(record), nil
 }
 
 func deploymentResponse(
 	record DeploymentRecord,
 ) DeploymentResponse {
+	record = normalizeDeploymentRecord(record)
+
 	return DeploymentResponse{
-		App:       record.App,
-		RepoURL:   record.RepoURL,
-		Container: record.Container,
-		Image:     record.Image,
-		Port:      record.Port,
-		Status:    containerStatus(record.Container),
+		App:           record.App,
+		RepoURL:       record.RepoURL,
+		Container:     record.Container,
+		Image:         record.Image,
+		Port:          record.Port,
+		ContainerPort: record.ContainerPort,
+		HealthPath:    record.HealthPath,
+		Status:        containerStatus(record.Container),
 	}
 }
 

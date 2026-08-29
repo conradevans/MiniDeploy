@@ -13,6 +13,20 @@ func startManagedContainer(
 	imageName string,
 	port int,
 ) error {
+	return startManagedContainerWithPort(
+		containerName,
+		imageName,
+		port,
+		defaultContainerPort,
+	)
+}
+
+func startManagedContainerWithPort(
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+) error {
 	output, err := runCommand(
 		"",
 		"docker",
@@ -24,8 +38,9 @@ func startManagedContainer(
 		containerName,
 		"-p",
 		fmt.Sprintf(
-			"%d:80",
-			port,
+			"%d:%d",
+			hostPort,
+			containerPort,
 		),
 		imageName,
 	)

@@ -5,16 +5,21 @@ type HealthResponse struct {
 }
 
 type DeployRequest struct {
-	RepoURL string `json:"repoUrl"`
+	RepoURL       string `json:"repoUrl"`
+	ContainerPort int    `json:"containerPort"`
+	HealthPath    string `json:"healthPath"`
 }
 
 type DeploymentResponse struct {
-	App       string `json:"app"`
-	RepoURL   string `json:"repoUrl"`
-	Container string `json:"container"`
-	Image     string `json:"image"`
-	Port      int    `json:"port"`
-	Status    string `json:"status"`
+	App           string `json:"app"`
+	RepoURL       string `json:"repoUrl"`
+	Container     string `json:"container"`
+	Image         string `json:"image"`
+	Port          int    `json:"port"`
+	ContainerPort int    `json:"containerPort"`
+	HealthPath    string `json:"healthPath"`
+
+	Status string `json:"status"`
 }
 
 type LogsResponse struct {

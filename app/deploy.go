@@ -9,9 +9,28 @@ import (
 	"time"
 )
 
-func deployRepository(repoURL string) (DeploymentRecord, error) {
+func deployRepository(
+	repoURL string,
+	containerPort int,
+	healthPath string,
+) (DeploymentRecord, error) {
 	deployMu.Lock()
 	defer deployMu.Unlock()
+
+	containerPort = normalizedContainerPort(
+		containerPort,
+	)
+
+	healthPath = normalizedHealthPath(
+		healthPath,
+	)
+
+	if err := validateDeploymentConfig(
+		containerPort,
+		healthPath,
+	); err != nil {
+		return DeploymentRecord{}, err
+	}
 
 	appName := repoName(repoURL)
 
@@ -77,10 +96,11 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		return DeploymentRecord{}, err
 	}
 
-	if err := startManagedContainer(
+	if err := startManagedContainerWithPort(
 		containerName,
 		imageName,
 		port,
+		containerPort,
 	); err != nil {
 		return DeploymentRecord{}, err
 	}
@@ -111,7 +131,10 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 		)
 	}
 
-	if err := verifyHTTPHealth(port); err != nil {
+	if err := verifyHTTPHealthPath(
+		port,
+		healthPath,
+	); err != nil {
 		logs, _ := containerLogs(containerName, 100)
 
 		_, _ = runCommand(
@@ -138,11 +161,13 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 	}
 
 	record := DeploymentRecord{
-		App:       appName,
-		RepoURL:   repoURL,
-		Container: containerName,
-		Image:     imageName,
-		Port:      port,
+		App:           appName,
+		RepoURL:       repoURL,
+		Container:     containerName,
+		Image:         imageName,
+		Port:          port,
+		ContainerPort: containerPort,
+		HealthPath:    healthPath,
 	}
 
 	if err := store.Save(record); err != nil {
@@ -174,6 +199,8 @@ func deployRepository(repoURL string) (DeploymentRecord, error) {
 func safeRedeploy(
 	old DeploymentRecord,
 ) (DeploymentRecord, error) {
+	old = normalizeDeploymentRecord(old)
+
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
@@ -269,8 +296,9 @@ func safeRedeploy(
 		candidateContainer,
 		"-p",
 		fmt.Sprintf(
-			"%d:80",
+			"%d:%d",
 			candidatePort,
+			old.ContainerPort,
 		),
 		newImage,
 	); err != nil {
@@ -324,7 +352,10 @@ func safeRedeploy(
 		)
 	}
 
-	if err := verifyHTTPHealth(candidatePort); err != nil {
+	if err := verifyHTTPHealthPath(
+		candidatePort,
+		old.HealthPath,
+	); err != nil {
 		logs, _ := containerLogs(
 			candidateContainer,
 			100,
@@ -389,10 +420,11 @@ func safeRedeploy(
 		}
 	}
 
-	if err := startManagedContainer(
+	if err := startManagedContainerWithPort(
 		old.Container,
 		newImage,
 		old.Port,
+		old.ContainerPort,
 	); err != nil {
 		rollbackErr := restorePreviousContainer(
 			old,
@@ -465,7 +497,10 @@ func safeRedeploy(
 		)
 	}
 
-	if err := verifyHTTPHealth(old.Port); err != nil {
+	if err := verifyHTTPHealthPath(
+		old.Port,
+		old.HealthPath,
+	); err != nil {
 		logs, _ := containerLogs(
 			old.Container,
 			100,

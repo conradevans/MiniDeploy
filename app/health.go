@@ -45,15 +45,30 @@ func verifyContainerStartup(
 }
 
 func verifyHTTPHealth(port int) error {
+	return verifyHTTPHealthPath(
+		port,
+		defaultHealthPath,
+	)
+}
+
+func verifyHTTPHealthPath(
+	port int,
+	healthPath string,
+) error {
 	const attempts = 5
+
+	healthPath = normalizedHealthPath(
+		healthPath,
+	)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 
 	url := fmt.Sprintf(
-		"http://127.0.0.1:%d/",
+		"http://127.0.0.1:%d%s",
 		port,
+		healthPath,
 	)
 
 	var lastErr error
@@ -83,7 +98,9 @@ func verifyHTTPHealth(port int) error {
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("unknown health-check failure")
+		lastErr = fmt.Errorf(
+			"unknown health-check failure",
+		)
 	}
 
 	return fmt.Errorf(

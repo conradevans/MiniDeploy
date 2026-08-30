@@ -37,27 +37,34 @@ func startManagedContainerWithPort(
 		"--name",
 		containerName,
 		"-p",
-		fmt.Sprintf(
-			"%d:%d",
+		managedPortBinding(
 			hostPort,
 			containerPort,
 		),
 		imageName,
 	)
-
 	if err != nil {
 		log.Printf(
 			"docker run failed:\n%s",
 			output,
 		)
-
 		return fmt.Errorf(
 			"docker run: %w",
 			err,
 		)
 	}
-
 	return nil
+}
+
+func managedPortBinding(
+	hostPort int,
+	containerPort int,
+) string {
+	return fmt.Sprintf(
+		"127.0.0.1:%d:%d",
+		hostPort,
+		containerPort,
+	)
 }
 
 func containerLogs(
@@ -83,7 +90,6 @@ func containerExists(
 		"inspect",
 		containerName,
 	)
-
 	return err == nil
 }
 
@@ -98,7 +104,6 @@ func containerStatus(
 		"{{.State.Status}}",
 		containerName,
 	)
-
 	if err != nil {
 		return "missing"
 	}
@@ -114,17 +119,15 @@ func findAvailablePort(
 		listener, err := net.Listen(
 			"tcp",
 			fmt.Sprintf(
-				":%d",
+				"127.0.0.1:%d",
 				port,
 			),
 		)
-
 		if err != nil {
 			continue
 		}
 
 		listener.Close()
-
 		return port, nil
 	}
 
@@ -150,6 +153,5 @@ func runCommand(
 	}
 
 	output, err := cmd.CombinedOutput()
-
 	return string(output), err
 }

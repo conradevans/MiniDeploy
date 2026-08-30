@@ -78,11 +78,12 @@ func rollbackDeployment(
 	}
 
 	previous := versions[0]
+	previousRecord := previous.RecordWithFallback(current)
 
 	deploymentEvent(
 		current.App,
 		"Selected rollback image: %s",
-		previous.Image,
+		previousRecord.Image,
 	)
 
 	if _, err := runCommand(
@@ -90,7 +91,7 @@ func rollbackDeployment(
 		"docker",
 		"image",
 		"inspect",
-		previous.Image,
+		previousRecord.Image,
 	); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"previous Docker image is unavailable: %w",
@@ -133,9 +134,9 @@ func rollbackDeployment(
 
 	if err := startManagedContainerWithPort(
 		candidateName,
-		previous.Image,
+		previousRecord.Image,
 		candidatePort,
-		current.ContainerPort,
+		previousRecord.ContainerPort,
 	); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"start rollback candidate: %w",
@@ -172,7 +173,7 @@ func rollbackDeployment(
 
 	if err := verifyHTTPHealthPath(
 		candidatePort,
-		current.HealthPath,
+		previousRecord.HealthPath,
 	); err != nil {
 		logs, _ := containerLogs(
 			candidateName,
@@ -200,15 +201,9 @@ func rollbackDeployment(
 		"Rollback candidate passed startup and HTTP health checks.",
 	)
 
-	newRecord := DeploymentRecord{
-		App:           current.App,
-		RepoURL:       previous.RepoURL,
-		Container:     candidateName,
-		Image:         previous.Image,
-		Port:          candidatePort,
-		ContainerPort: current.ContainerPort,
-		HealthPath:    current.HealthPath,
-	}
+	newRecord := previousRecord
+	newRecord.Container = candidateName
+	newRecord.Port = candidatePort
 
 	// Make the healthy rollback candidate the desired active deployment.
 	// The current container is deliberately still running.
@@ -324,7 +319,7 @@ func rollbackDeployment(
 		current.App,
 		current.Port,
 		candidatePort,
-		previous.Image,
+		previousRecord.Image,
 	)
 
 	deploymentEvent(

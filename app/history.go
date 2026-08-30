@@ -10,33 +10,65 @@ import (
 )
 
 type DeploymentVersion struct {
-	App        string    `json:"app"`
-	RepoURL    string    `json:"repoUrl"`
-	Container  string    `json:"container"`
-	Image      string    `json:"image"`
-	Port       int       `json:"port"`
-	DeployedAt time.Time `json:"deployedAt"`
+	App           string    `json:"app"`
+	RepoURL       string    `json:"repoUrl"`
+	Container     string    `json:"container"`
+	Image         string    `json:"image"`
+	Port          int       `json:"port"`
+	ContainerPort int       `json:"containerPort"`
+	HealthPath    string    `json:"healthPath"`
+	DeployedAt    time.Time `json:"deployedAt"`
 }
 
 func deploymentVersion(record DeploymentRecord) DeploymentVersion {
+	record = normalizeDeploymentRecord(record)
+
 	return DeploymentVersion{
-		App:        record.App,
-		RepoURL:    record.RepoURL,
-		Container:  record.Container,
-		Image:      record.Image,
-		Port:       record.Port,
-		DeployedAt: time.Now().UTC(),
+		App:           record.App,
+		RepoURL:       record.RepoURL,
+		Container:     record.Container,
+		Image:         record.Image,
+		Port:          record.Port,
+		ContainerPort: record.ContainerPort,
+		HealthPath:    record.HealthPath,
+		DeployedAt:    time.Now().UTC(),
 	}
 }
 
 func (v DeploymentVersion) Record() DeploymentRecord {
-	return DeploymentRecord{
-		App:       v.App,
-		RepoURL:   v.RepoURL,
-		Container: v.Container,
-		Image:     v.Image,
-		Port:      v.Port,
+	return normalizeDeploymentRecord(
+		DeploymentRecord{
+			App:           v.App,
+			RepoURL:       v.RepoURL,
+			Container:     v.Container,
+			Image:         v.Image,
+			Port:          v.Port,
+			ContainerPort: v.ContainerPort,
+			HealthPath:    v.HealthPath,
+		},
+	)
+}
+
+// RecordWithFallback supports history written before ContainerPort
+// and HealthPath were persisted. New history entries are completely
+// self-contained, while legacy entries safely inherit the current
+// deployment configuration.
+func (v DeploymentVersion) RecordWithFallback(
+	fallback DeploymentRecord,
+) DeploymentRecord {
+	fallback = normalizeDeploymentRecord(fallback)
+
+	record := v.Record()
+
+	if v.ContainerPort == 0 {
+		record.ContainerPort = fallback.ContainerPort
 	}
+
+	if v.HealthPath == "" {
+		record.HealthPath = fallback.HealthPath
+	}
+
+	return normalizeDeploymentRecord(record)
 }
 
 type JSONHistoryStore struct {

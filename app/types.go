@@ -28,6 +28,11 @@ type LogsResponse struct {
 	Logs      string `json:"logs"`
 }
 
+type DeploymentLogsResponse struct {
+	App  string `json:"app"`
+	Logs string `json:"logs"`
+}
+
 type ActionResponse struct {
 	Status    string `json:"status"`
 	App       string `json:"app"`

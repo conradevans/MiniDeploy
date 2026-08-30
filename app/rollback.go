@@ -58,6 +58,13 @@ func rollbackDeployment(
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
+	resetDeploymentLog(current.App, "zero-downtime rollback")
+	deploymentEvent(
+		current.App,
+		"Current version remains live on port %d.",
+		current.Port,
+	)
+
 	versions, err := historyStore.List(current.App)
 	if err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
@@ -71,6 +78,12 @@ func rollbackDeployment(
 	}
 
 	previous := versions[0]
+
+	deploymentEvent(
+		current.App,
+		"Selected rollback image: %s",
+		previous.Image,
+	)
 
 	if _, err := runCommand(
 		"",
@@ -110,6 +123,12 @@ func rollbackDeployment(
 	log.Printf(
 		"Starting zero-downtime rollback candidate for %s while current version stays live",
 		current.App,
+	)
+
+	deploymentEvent(
+		current.App,
+		"Starting rollback candidate on port %d...",
+		candidatePort,
 	)
 
 	if err := startManagedContainerWithPort(
@@ -176,6 +195,11 @@ func rollbackDeployment(
 		current.Port,
 	)
 
+	deploymentEvent(
+		current.App,
+		"Rollback candidate passed startup and HTTP health checks.",
+	)
+
 	newRecord := DeploymentRecord{
 		App:           current.App,
 		RepoURL:       previous.RepoURL,
@@ -226,6 +250,13 @@ func rollbackDeployment(
 			err,
 		)
 	}
+
+	deploymentEvent(
+		current.App,
+		"Caddy switched traffic from port %d to rollback port %d.",
+		current.Port,
+		candidatePort,
+	)
 
 	log.Printf(
 		"Caddy cut over rollback of %s from port %d to healthy candidate port %d",
@@ -294,6 +325,11 @@ func rollbackDeployment(
 		current.Port,
 		candidatePort,
 		previous.Image,
+	)
+
+	deploymentEvent(
+		current.App,
+		"Zero-downtime rollback completed successfully.",
 	)
 
 	return newRecord, nil

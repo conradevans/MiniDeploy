@@ -33,6 +33,11 @@ func routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"GET /deployments/{app}/deploy-logs",
+		deploymentLogsHandler,
+	)
+
+	mux.HandleFunc(
 		"POST /deployments/{app}/rollback",
 		rollbackDeploymentHandler,
 	)

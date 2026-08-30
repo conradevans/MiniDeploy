@@ -372,6 +372,12 @@ async function loadDeployments() {
                     >
                         Logs
                     </button>
+                    <button
+                        class="secondary"
+                        onclick="showDeployLogs('${escapeJS(app.app)}')"
+                    >
+                        Deploy Logs
+                    </button>
 
                     <button
                         class="secondary"
@@ -477,6 +483,28 @@ function openApp(app) {
         `https://${publicHostnameForApp(app)}/`,
         "_blank"
     );
+}
+
+async function showDeployLogs(app) {
+    const response = await fetch(
+        `/deployments/${encodeURIComponent(app)}/deploy-logs`
+    );
+
+    if (!response.ok) {
+        alert("Failed to retrieve deployment logs.");
+        return;
+    }
+
+    const result = await response.json();
+
+    document.getElementById("logsTitle").textContent =
+        `${app} deployment logs`;
+
+    document.getElementById("logsContent").textContent =
+        result.logs || "No deployment log available yet.";
+
+    document.getElementById("logsOverlay").style.display =
+        "flex";
 }
 
 async function showLogs(app) {

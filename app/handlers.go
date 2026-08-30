@@ -78,6 +78,11 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		deploymentEvent(
+			appName,
+			"ERROR: deployment failed: %v",
+			err,
+		)
 		log.Printf("deployment failed: %v", err)
 		http.Error(w, "deployment failed", http.StatusInternalServerError)
 		return
@@ -96,6 +101,12 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		)
 		return
 	}
+
+	deploymentEvent(
+		record.App,
+		"Proxy routes synchronized. Deployment is live at https://%s.reactorlab.dev",
+		record.App,
+	)
 
 	writeJSON(w, http.StatusCreated, deploymentResponse(record))
 }
@@ -120,6 +131,12 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 	newRecord, err := safeRedeploy(record)
 
 	if err != nil {
+		deploymentEvent(
+			record.App,
+			"ERROR: redeployment failed: %v",
+			err,
+		)
+
 		log.Printf(
 			"safe redeployment failed for %s: %v",
 			record.App,
@@ -240,6 +257,12 @@ func rollbackDeploymentHandler(
 	}
 
 	if err != nil {
+		deploymentEvent(
+			app,
+			"ERROR: rollback failed: %v",
+			err,
+		)
+
 		log.Printf(
 			"rollback failed for %s: %v",
 			app,
@@ -380,6 +403,58 @@ func logsHandler(
 			App:       record.App,
 			Container: record.Container,
 			Logs:      output,
+		},
+	)
+}
+
+func deploymentLogsHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	record, err := getDeployment(
+		r.PathValue("app"),
+	)
+
+	if errors.Is(err, ErrDeploymentNotFound) {
+		http.Error(
+			w,
+			"deployment not found",
+			http.StatusNotFound,
+		)
+		return
+	}
+
+	if err != nil {
+		http.Error(
+			w,
+			"failed to load deployment",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	output, err := readDeploymentLog(record.App)
+	if err != nil {
+		log.Printf(
+			"failed to retrieve deployment logs for %s: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to retrieve deployment logs",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeJSON(
+		w,
+		http.StatusOK,
+		DeploymentLogsResponse{
+			App:  record.App,
+			Logs: output,
 		},
 	)
 }

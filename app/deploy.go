@@ -38,6 +38,14 @@ func deployRepository(
 		return DeploymentRecord{}, fmt.Errorf("invalid repository URL")
 	}
 
+	resetDeploymentLog(appName, "deployment")
+	deploymentEvent(
+		appName,
+		"Preparing deployment: container port %d, health path %s",
+		containerPort,
+		healthPath,
+	)
+
 	deployPath := filepath.Join(deploymentsDir, appName)
 	imageName := versionedImageName(appName)
 	containerName := "minideploy-" + appName
@@ -56,6 +64,8 @@ func deployRepository(
 		)
 	}
 
+	deploymentEvent(appName, "Cloning repository...")
+
 	if output, err := runCommand(
 		"",
 		"git",
@@ -70,6 +80,9 @@ func deployRepository(
 			err,
 		)
 	}
+
+	deploymentEvent(appName, "Repository cloned.")
+	deploymentEvent(appName, "Building Docker image...")
 
 	if output, err := runCommand(
 		deployPath,
@@ -87,6 +100,12 @@ func deployRepository(
 		)
 	}
 
+	deploymentEvent(
+		appName,
+		"Docker image built successfully: %s",
+		imageName,
+	)
+
 	port, err := findAvailablePort(
 		minDeployPort,
 		maxDeployPort,
@@ -96,6 +115,12 @@ func deployRepository(
 		return DeploymentRecord{}, err
 	}
 
+	deploymentEvent(
+		appName,
+		"Starting container on host port %d...",
+		port,
+	)
+
 	if err := startManagedContainerWithPort(
 		containerName,
 		imageName,
@@ -104,6 +129,8 @@ func deployRepository(
 	); err != nil {
 		return DeploymentRecord{}, err
 	}
+
+	deploymentEvent(appName, "Container started. Verifying startup...")
 
 	if err := verifyContainerStartup(containerName); err != nil {
 		logs, _ := containerLogs(containerName, 100)
@@ -130,6 +157,12 @@ func deployRepository(
 			logs,
 		)
 	}
+
+	deploymentEvent(
+		appName,
+		"Startup verification passed. Checking HTTP health at %s...",
+		healthPath,
+	)
 
 	if err := verifyHTTPHealthPath(
 		port,
@@ -159,6 +192,8 @@ func deployRepository(
 			logs,
 		)
 	}
+
+	deploymentEvent(appName, "HTTP health check passed.")
 
 	record := DeploymentRecord{
 		App:           appName,
@@ -193,6 +228,11 @@ func deployRepository(
 		)
 	}
 
+	deploymentEvent(
+		appName,
+		"Container is healthy and deployment metadata is saved.",
+	)
+
 	return record, nil
 }
 
@@ -203,6 +243,13 @@ func safeRedeploy(
 
 	deployMu.Lock()
 	defer deployMu.Unlock()
+
+	resetDeploymentLog(old.App, "zero-downtime redeploy")
+	deploymentEvent(
+		old.App,
+		"Current version remains live on port %d.",
+		old.Port,
+	)
 
 	version := fmt.Sprintf(
 		"%d",
@@ -237,6 +284,11 @@ func safeRedeploy(
 		old.App,
 	)
 
+	deploymentEvent(
+		old.App,
+		"Cloning repository for candidate...",
+	)
+
 	if output, err := runCommand(
 		"",
 		"git",
@@ -253,6 +305,11 @@ func safeRedeploy(
 			err,
 		)
 	}
+
+	deploymentEvent(
+		old.App,
+		"Repository cloned. Building candidate Docker image...",
+	)
 
 	if output, err := runCommand(
 		candidatePath,
@@ -272,6 +329,12 @@ func safeRedeploy(
 		)
 	}
 
+	deploymentEvent(
+		old.App,
+		"Candidate Docker image built successfully: %s",
+		newImage,
+	)
+
 	candidatePort, err := findAvailablePort(
 		minDeployPort,
 		maxDeployPort,
@@ -289,6 +352,12 @@ func safeRedeploy(
 			err,
 		)
 	}
+
+	deploymentEvent(
+		old.App,
+		"Starting candidate container on port %d...",
+		candidatePort,
+	)
 
 	if err := startManagedContainerWithPort(
 		candidateContainer,
@@ -369,6 +438,11 @@ func safeRedeploy(
 		old.Port,
 	)
 
+	deploymentEvent(
+		old.App,
+		"Candidate passed startup and HTTP health checks.",
+	)
+
 	newRecord := old
 	newRecord.Container = candidateContainer
 	newRecord.Image = newImage
@@ -415,6 +489,13 @@ func safeRedeploy(
 			err,
 		)
 	}
+
+	deploymentEvent(
+		old.App,
+		"Caddy switched traffic from port %d to port %d.",
+		old.Port,
+		candidatePort,
+	)
 
 	log.Printf(
 		"Caddy cut over %s from port %d to healthy candidate port %d",
@@ -482,6 +563,11 @@ func safeRedeploy(
 		old.App,
 		old.Port,
 		candidatePort,
+	)
+
+	deploymentEvent(
+		old.App,
+		"Zero-downtime redeployment completed successfully.",
 	)
 
 	return newRecord, nil

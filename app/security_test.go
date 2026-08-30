@@ -156,3 +156,106 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicSecurityMiddlewareAllowsPublicOriginMutation(
+	t *testing.T,
+) {
+	next := http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	handler := publicSecurityMiddleware(next)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"https://minideploy.reactorlab.dev/api/admin/deploy",
+		nil,
+	)
+	req.Header.Set(
+		"Origin",
+		publicManagementOrigin,
+	)
+	req.Header.Set(
+		"Sec-Fetch-Site",
+		"same-origin",
+	)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf(
+			"status = %d; want %d",
+			recorder.Code,
+			http.StatusNoContent,
+		)
+	}
+}
+
+func TestPublicSecurityMiddlewareRejectsCrossOriginMutation(
+	t *testing.T,
+) {
+	next := http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	handler := publicSecurityMiddleware(next)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"https://minideploy.reactorlab.dev/api/admin/deploy",
+		nil,
+	)
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf(
+			"status = %d; want %d",
+			recorder.Code,
+			http.StatusForbidden,
+		)
+	}
+}
+
+func TestManagementSecurityDoesNotTrustPublicOrigin(
+	t *testing.T,
+) {
+	next := http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	handler := securityMiddleware(next)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"http://localhost:9000/deploy",
+		nil,
+	)
+	req.Header.Set(
+		"Origin",
+		publicManagementOrigin,
+	)
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf(
+			"management listener trusted public origin; status = %d",
+			recorder.Code,
+		)
+	}
+}

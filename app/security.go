@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const publicManagementOrigin = "https://minideploy.reactorlab.dev"
+
 func securityMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(
 		w http.ResponseWriter,
@@ -16,6 +18,30 @@ func securityMiddleware(next http.Handler) http.Handler {
 		if isUnsafeMethod(r.Method) &&
 			r.URL.Path != "/webhooks/github" &&
 			!allowedManagementRequest(r) {
+
+			http.Error(
+				w,
+				"cross-origin management request rejected",
+				http.StatusForbidden,
+			)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func publicSecurityMiddleware(
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		setSecurityHeaders(w)
+
+		if isUnsafeMethod(r.Method) &&
+			!allowedPublicManagementRequest(r) {
 
 			http.Error(
 				w,
@@ -120,4 +146,27 @@ func allowedManagementRequest(
 	default:
 		return false
 	}
+}
+
+func allowedPublicManagementRequest(
+	r *http.Request,
+) bool {
+	if strings.EqualFold(
+		r.Header.Get("Sec-Fetch-Site"),
+		"cross-site",
+	) {
+		return false
+	}
+
+	origin := strings.TrimSpace(
+		r.Header.Get("Origin"),
+	)
+
+	// Non-browser clients do not necessarily send Origin. Public
+	// admin routes still require a valid Cloudflare Access JWT.
+	if origin == "" {
+		return true
+	}
+
+	return origin == publicManagementOrigin
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,11 @@ const (
 	publicProxyRoutesPath = "/srv/minideploy/caddy/public-apps.caddy"
 	caddyConfigPath       = "/etc/caddy/Caddyfile"
 	publicDomain          = "reactorlab.dev"
+	publicSiteHostname    = "minideploy.reactorlab.dev"
+)
+
+var ErrReservedPublicHostname = errors.New(
+	"public hostname is reserved",
 )
 
 func syncProxyRoutes() error {
@@ -156,6 +162,17 @@ func writeProxyRoutes(
 }
 
 func publicHostnameForApp(app string) string {
+	result := publicHostnameLabel(app)
+	if result == "" ||
+		result+"."+publicDomain == publicSiteHostname {
+
+		return ""
+	}
+
+	return result + "." + publicDomain
+}
+
+func publicHostnameLabel(app string) string {
 	app = strings.ToLower(
 		strings.TrimSpace(app),
 	)
@@ -201,5 +218,12 @@ func publicHostnameForApp(app string) string {
 		return ""
 	}
 
-	return result + "." + publicDomain
+	return result
+}
+
+func isReservedPublicApp(app string) bool {
+	label := publicHostnameLabel(app)
+
+	return label != "" &&
+		label+"."+publicDomain == publicSiteHostname
 }

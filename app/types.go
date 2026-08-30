@@ -4,6 +4,17 @@ type HealthResponse struct {
 	Status string `json:"status"`
 }
 
+type GuestDeploymentResponse struct {
+	App    string `json:"app"`
+	URL    string `json:"url"`
+	Status string `json:"status"`
+}
+
+type AdminSessionResponse struct {
+	Role  string `json:"role"`
+	Email string `json:"email"`
+}
+
 type DeployRequest struct {
 	RepoURL       string `json:"repoUrl"`
 	ContainerPort int    `json:"containerPort"`

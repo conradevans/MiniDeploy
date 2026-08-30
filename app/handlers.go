@@ -35,6 +35,15 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isReservedPublicApp(appName) {
+		http.Error(
+			w,
+			"deployment name is reserved",
+			http.StatusBadRequest,
+		)
+		return
+	}
+
 	if _, err := store.Get(appName); err == nil {
 		http.Error(
 			w,

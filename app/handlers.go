@@ -740,6 +740,6 @@ func dashboardHandler(
 	http.ServeFile(
 		w,
 		r,
-		"/srv/minideploy/web/index.html",
+		"/srv/minideploy/frontend/dist/index.html",
 	)
 }

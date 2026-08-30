@@ -62,6 +62,25 @@ func routes() *http.ServeMux {
 		githubWebhookHandler,
 	)
 
+	frontendFiles := http.FileServer(
+		http.Dir("/srv/minideploy/frontend/dist"),
+	)
+
+	mux.Handle(
+		"GET /assets/",
+		frontendFiles,
+	)
+
+	mux.Handle(
+		"GET /favicon.svg",
+		frontendFiles,
+	)
+
+	mux.Handle(
+		"GET /icons.svg",
+		frontendFiles,
+	)
+
 	mux.HandleFunc(
 		"GET /",
 		dashboardHandler,

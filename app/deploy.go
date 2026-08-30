@@ -93,6 +93,11 @@ func deployRepository(
 		".",
 	); err != nil {
 		log.Printf("docker build failed:\n%s", output)
+		deploymentEvent(
+			appName,
+			"ERROR: Docker build failed:\n%s",
+			output,
+		)
 
 		return DeploymentRecord{}, fmt.Errorf(
 			"docker build failed: %w",
@@ -323,6 +328,12 @@ func safeRedeploy(
 			"candidate Docker build failed:\n%s",
 			output,
 		)
+		deploymentEvent(
+			old.App,
+			"ERROR: candidate Docker build failed:\n%s",
+			output,
+		)
+
 		return DeploymentRecord{}, fmt.Errorf(
 			"build candidate image: %w",
 			err,

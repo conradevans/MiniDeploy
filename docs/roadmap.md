@@ -1,51 +1,166 @@
 # MiniDeploy Roadmap
 
-## Phase 1 - Server Setup
+## v1 — Core Platform
 
-- Install Ubuntu Server
-- Configure SSH
-- Configure networking
-- Configure firewall
-- Install Git
-- Install Docker Engine
-- Install Docker Compose
+### Server Infrastructure
 
-## Phase 2 - Manual Deployment
+- [x] Install Ubuntu Server
+- [x] Configure SSH
+- [x] Configure headless operation
+- [x] Configure firewall
+- [x] Install Docker Engine
+- [x] Configure systemd services
+- [x] Configure reliable NTP synchronization
 
-- Clone a Git repository
-- Build a Docker image
-- Run a container
-- Map application ports
-- View container logs
-- Stop and restart applications
+### Deployment Engine
 
-## Phase 3 - MiniDeploy Backend
+- [x] Deploy from Git repositories
+- [x] Build Docker images automatically
+- [x] Dynamically allocate host ports
+- [x] Support custom container ports
+- [x] Support custom HTTP health paths
+- [x] Persist deployment metadata
+- [x] Restart applications
+- [x] Delete applications
 
-- Create deployment API
-- Store application configuration
-- Trigger deployments
-- Track deployment status
-- Retrieve application logs
+### Networking
 
-## Phase 4 - Networking
+- [x] Configure Caddy
+- [x] Generate reverse-proxy routes automatically
+- [x] Configure ReactorLab domain
+- [x] Configure Cloudflare Tunnel
+- [x] Publish applications through `*.reactorlab.dev`
+- [x] Configure automatic HTTPS
+- [x] Restrict application ports to loopback
 
-- Add reverse proxy
-- Assign domains/subdomains
-- Configure HTTPS
-- Route traffic to containers
+### Reliability
 
-## Phase 5 - Dashboard
+- [x] Startup health validation
+- [x] HTTP health validation
+- [x] Reject failed candidate releases
+- [x] Zero-downtime redeployment
+- [x] Deployment history
+- [x] Zero-downtime rollback
+- [x] Preserve historical deployment configuration
+- [x] Recover services after server reboot
+- [x] Recover Docker applications after server reboot
+- [x] Test failed-build recovery
+- [x] Test live traffic during proxy cutover
 
-- Add web interface
-- Create applications
-- Trigger deployments
-- View deployment status
-- View logs
+### GitHub Automation
 
-## Phase 6 - Automation
+- [x] GitHub webhook endpoint
+- [x] HMAC-SHA256 webhook validation
+- [x] Automatic redeployment on pushes to `main`
+- [x] Cloudflare webhook ingress
+- [x] Keep management API private
 
-- GitHub integration
-- Automatic deployments
-- Health checks
-- Deployment history
-- Rollbacks
+### Observability
+
+- [x] Runtime container logs
+- [x] Persistent deployment activity logs
+- [x] Include Docker build failures in deployment logs
+- [x] Deployment status dashboard
+
+### Dashboard
+
+- [x] Initial HTML dashboard
+- [x] React/Vite dashboard
+- [x] Deploy applications
+- [x] View application status
+- [x] View public URLs
+- [x] Runtime logs
+- [x] Deployment logs
+- [x] Deployment history
+- [x] Restart
+- [x] Redeploy
+- [x] Rollback
+- [x] Delete
+
+### Security
+
+- [x] Bind management API to localhost
+- [x] SSH-only management access
+- [x] HTTP security headers
+- [x] Cross-origin protections
+- [x] Signed GitHub webhooks
+- [x] systemd service hardening
+- [x] UFW firewall
+- [x] Loopback-only Docker application bindings
+- [x] Verify direct LAN access to app ports is blocked
+
+### Testing
+
+- [x] Core Go unit tests
+- [x] Deployment configuration tests
+- [x] History tests
+- [x] Security middleware tests
+- [x] GitHub signature tests
+- [x] Loopback binding tests
+- [x] Go race detector
+- [x] Failed-build recovery test
+- [x] Reboot persistence test
+- [x] Public routing test
+
+## v1 Final Polish
+
+- [ ] Clean stale local backup files
+- [ ] Improve deployment naming readability
+- [ ] Review Docker image cleanup strategy
+- [ ] Add screenshots to README
+- [ ] Record a short end-to-end demo
+- [ ] Deploy a larger real application through MiniDeploy
+- [ ] Final fresh-server setup documentation
+
+## Possible v2 Features
+
+These are intentionally outside the initial v1 scope.
+
+### Build System
+
+- [ ] Repository-specific build configuration
+- [ ] Build arguments
+- [ ] Environment-variable management
+- [ ] Build cancellation
+- [ ] Deployment queues
+- [ ] Build timeouts
+- [ ] Streaming build logs
+
+### Application Management
+
+- [ ] Custom application names
+- [ ] Custom domains
+- [ ] Environment-variable editor
+- [ ] Secrets management
+- [ ] Application resource limits
+- [ ] CPU and memory metrics
+- [ ] Deployment retention controls
+
+### Git Integration
+
+- [ ] Multiple branches
+- [ ] Pull-request preview deployments
+- [ ] GitHub installation/app integration
+- [ ] Commit metadata in deployment history
+- [ ] Commit-based rollback selection
+
+### Reliability
+
+- [ ] Automated rollback after post-cutover health degradation
+- [ ] Scheduled health monitoring
+- [ ] Deployment cancellation
+- [ ] Graceful application drain before container retirement
+
+### Platform Expansion
+
+MiniDeploy is intended to become one component of the broader ReactorLab private developer cloud.
+
+Potential companion systems include:
+
+```text
+MiniDeploy   application deployment
+MiniBase     managed private databases
+MiniAI       local development / infrastructure assistant
+```
+
+A future unified dashboard could manage all ReactorLab services.

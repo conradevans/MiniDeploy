@@ -1,16 +1,46 @@
-# React + Vite
+# MiniDeploy Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React/Vite management dashboard for MiniDeploy.
 
-Currently, two official plugins are available:
+The frontend communicates with the MiniDeploy Go API using relative HTTP routes and runs on the same origin as the backend in production.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Development
 
-## React Compiler
+Install dependencies:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+```
 
-## Expanding the Oxlint configuration
+Run the Vite development server:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+npm run dev
+```
+
+Build the production bundle:
+
+```bash
+npm run build
+```
+
+Production output is written to:
+
+```text
+dist/
+```
+
+The MiniDeploy Go server serves this directory in production.
+
+## Features
+
+- create deployments
+- view deployment status
+- open public ReactorLab URLs
+- view runtime logs
+- view deployment logs
+- view deployment history
+- restart applications
+- redeploy applications
+- roll back applications
+- delete deployments

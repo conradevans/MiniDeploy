@@ -151,20 +151,6 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := syncProxyRoutes(); err != nil {
-		log.Printf(
-			"proxy sync failed after redeploying %s: %v",
-			newRecord.App,
-			err,
-		)
-		http.Error(
-			w,
-			"redeployment succeeded but proxy sync failed",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, deploymentResponse(newRecord))
 }
 
@@ -272,20 +258,6 @@ func rollbackDeploymentHandler(
 		http.Error(
 			w,
 			"rollback failed; current version kept running",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	if err := syncProxyRoutes(); err != nil {
-		log.Printf(
-			"proxy sync failed after rolling back %s: %v",
-			record.App,
-			err,
-		)
-		http.Error(
-			w,
-			"rollback succeeded but proxy sync failed",
 			http.StatusInternalServerError,
 		)
 		return

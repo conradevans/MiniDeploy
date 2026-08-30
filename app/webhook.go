@@ -184,15 +184,6 @@ func githubWebhookHandler(
 			return
 		}
 
-		if err := syncProxyRoutes(); err != nil {
-			log.Printf(
-				"proxy sync failed after GitHub redeploy of %s: %v",
-				record.App,
-				err,
-			)
-			return
-		}
-
 		log.Printf(
 			"GitHub push deployment completed for %s using %s",
 			newRecord.App,

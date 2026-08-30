@@ -214,6 +214,39 @@
             line-height: 1.5;
         }
 
+        .history-list {
+            padding: 18px;
+            max-height: 65vh;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            padding: 14px;
+            margin-bottom: 10px;
+            background: #15181d;
+            border: 1px solid #272b33;
+            border-radius: 10px;
+        }
+
+        .history-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .history-image {
+            font-size: 13px;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .history-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-top: 8px;
+            color: #9ca3af;
+            font-size: 12px;
+        }
+
         @media (max-width: 700px) {
             .deploy-form {
                 flex-direction: column;
@@ -272,6 +305,18 @@
         </div>
 
         <pre id="logsContent"></pre>
+    </div>
+</div>
+
+<div class="logs-overlay" id="historyOverlay">
+    <div class="logs-modal">
+        <div class="logs-header">
+            <strong id="historyTitle">Deployment History</strong>
+            <button class="secondary" onclick="closeHistory()">
+                Close
+            </button>
+        </div>
+        <div class="history-list" id="historyContent"></div>
     </div>
 </div>
 
@@ -343,6 +388,18 @@ async function loadDeployments() {
                     </button>
 
                     <button
+                        class="secondary"
+                        onclick="showHistory('${escapeJS(app.app)}')"
+                    >
+                        History
+                    </button>
+                    <button
+                        class="secondary"
+                        onclick="rollbackApp('${escapeJS(app.app)}')"
+                    >
+                        Rollback
+                    </button>
+                    <button
                         class="danger"
                         onclick="deleteApp('${escapeJS(app.app)}')"
                     >
@@ -399,9 +456,25 @@ async function deployApp() {
     }
 }
 
+function publicHostnameForApp(app) {
+    let label = String(app)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    if (label.length > 63) {
+        label = label
+            .slice(0, 63)
+            .replace(/-+$/g, "");
+    }
+
+    return `${label}.reactorlab.dev`;
+}
+
 function openApp(app) {
     window.open(
-        `http://mini-server.local/${encodeURIComponent(app)}/`,
+        `https://${publicHostnameForApp(app)}/`,
         "_blank"
     );
 }
@@ -431,6 +504,72 @@ async function showLogs(app) {
 function closeLogs() {
     document.getElementById("logsOverlay").style.display =
         "none";
+}
+
+async function showHistory(app) {
+    const response = await fetch(
+        `/deployments/${encodeURIComponent(app)}/history`
+    );
+
+    if (!response.ok) {
+        alert("Failed to retrieve deployment history.");
+        return;
+    }
+
+    const result = await response.json();
+    const versions = result.versions || [];
+
+    document.getElementById("historyTitle").textContent =
+        `${app} deployment history`;
+
+    const content = document.getElementById("historyContent");
+
+    if (!versions.length) {
+        content.innerHTML =
+            '<div class="empty">No previous deployments available.</div>';
+    } else {
+        content.innerHTML = versions.map((version, index) => {
+            const deployedAt = version.deployedAt
+                ? new Date(version.deployedAt).toLocaleString()
+                : "Unknown time";
+
+            return `
+                <div class="history-item">
+                    <div class="history-image">
+                        ${escapeHtml(version.image || "Unknown image")}
+                    </div>
+
+                    <div class="history-meta">
+                        <span>Previous version ${index + 1}</span>
+                        <span>Port ${version.port ?? "—"}</span>
+                        <span>${escapeHtml(deployedAt)}</span>
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    document.getElementById("historyOverlay").style.display =
+        "flex";
+}
+
+function closeHistory() {
+    document.getElementById("historyOverlay").style.display =
+        "none";
+}
+
+async function rollbackApp(app) {
+    if (!confirm(
+        `Rollback ${app} to its previous deployment?`
+    )) {
+        return;
+    }
+
+    await runAction(
+        `/deployments/${encodeURIComponent(app)}/rollback`,
+        "POST",
+        `${app} rolled back successfully.`
+    );
 }
 
 async function restartApp(app) {

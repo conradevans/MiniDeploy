@@ -16,6 +16,7 @@ func restorePreviousContainer(
 	shouldRun bool,
 ) error {
 	record = normalizeDeploymentRecord(record)
+
 	if record.Image == "" {
 		return fmt.Errorf(
 			"previous image is unknown",
@@ -42,7 +43,6 @@ func restorePreviousContainer(
 				"failed to restore stopped state:\n%s",
 				output,
 			)
-
 			return err
 		}
 	}
@@ -59,7 +59,6 @@ func rollbackDeployment(
 	defer deployMu.Unlock()
 
 	versions, err := historyStore.List(current.App)
-
 	if err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"load deployment history: %w",
@@ -101,7 +100,6 @@ func rollbackDeployment(
 		minDeployPort,
 		maxDeployPort,
 	)
-
 	if err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"allocate rollback candidate port: %w",
@@ -109,28 +107,17 @@ func rollbackDeployment(
 		)
 	}
 
-	output, err := runCommand(
-		"",
-		"docker",
-		"run",
-		"-d",
-		"--name",
-		candidateName,
-		"-p",
-		fmt.Sprintf(
-			"%d:%d",
-			candidatePort,
-			current.ContainerPort,
-		),
-		previous.Image,
+	log.Printf(
+		"Starting zero-downtime rollback candidate for %s while current version stays live",
+		current.App,
 	)
 
-	if err != nil {
-		log.Printf(
-			"rollback candidate failed to start:\n%s",
-			output,
-		)
-
+	if err := startManagedContainerWithPort(
+		candidateName,
+		previous.Image,
+		candidatePort,
+		current.ContainerPort,
+	); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"start rollback candidate: %w",
 			err,
@@ -182,151 +169,73 @@ func rollbackDeployment(
 		)
 	}
 
-	cleanupCandidate()
-
-	currentWasRunning :=
-		containerStatus(current.Container) == "running"
-
-	if containerExists(current.Container) {
-		if output, err := runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			current.Container,
-		); err != nil {
-			log.Printf(
-				"failed to remove current container:\n%s",
-				output,
-			)
-
-			return DeploymentRecord{}, fmt.Errorf(
-				"remove current container: %w",
-				err,
-			)
-		}
-	}
-
-	if err := startManagedContainerWithPort(
-		current.Container,
-		previous.Image,
+	log.Printf(
+		"Rollback candidate for %s is healthy on port %d; current version remains live on port %d",
+		current.App,
+		candidatePort,
 		current.Port,
-		current.ContainerPort,
-	); err != nil {
-		restoreErr := restorePreviousContainer(
-			current,
-			currentWasRunning,
-		)
-
-		if restoreErr != nil {
-			log.Printf(
-				"failed to restore current deployment: %v",
-				restoreErr,
-			)
-		}
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"start rollback version: %w",
-			err,
-		)
-	}
-
-	if err := verifyContainerStartup(
-		current.Container,
-	); err != nil {
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			current.Container,
-		)
-
-		restoreErr := restorePreviousContainer(
-			current,
-			currentWasRunning,
-		)
-
-		if restoreErr != nil {
-			log.Printf(
-				"failed to restore current deployment: %v",
-				restoreErr,
-			)
-		}
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"rolled-back container failed startup verification: %w",
-			err,
-		)
-	}
-
-	if err := verifyHTTPHealthPath(
-		current.Port,
-		current.HealthPath,
-	); err != nil {
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			current.Container,
-		)
-
-		restoreErr := restorePreviousContainer(
-			current,
-			currentWasRunning,
-		)
-
-		if restoreErr != nil {
-			log.Printf(
-				"failed to restore current deployment: %v",
-				restoreErr,
-			)
-		}
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"rolled-back container failed HTTP verification: %w",
-			err,
-		)
-	}
+	)
 
 	newRecord := DeploymentRecord{
 		App:           current.App,
 		RepoURL:       previous.RepoURL,
-		Container:     current.Container,
+		Container:     candidateName,
 		Image:         previous.Image,
-		Port:          current.Port,
+		Port:          candidatePort,
 		ContainerPort: current.ContainerPort,
 		HealthPath:    current.HealthPath,
 	}
 
+	// Make the healthy rollback candidate the desired active deployment.
+	// The current container is deliberately still running.
 	if err := store.Save(newRecord); err != nil {
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			current.Container,
-		)
-
-		restoreErr := restorePreviousContainer(
-			current,
-			currentWasRunning,
-		)
-
-		if restoreErr != nil {
-			log.Printf(
-				"failed to restore current deployment: %v",
-				restoreErr,
-			)
-		}
+		cleanupCandidate()
 
 		return DeploymentRecord{}, fmt.Errorf(
-			"save rollback metadata: %w",
+			"save rollback candidate metadata: %w",
 			err,
 		)
 	}
 
+	// Atomically switch Caddy to the healthy rollback candidate.
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"rollback proxy cutover failed for %s; restoring current route: %v",
+			current.App,
+			err,
+		)
+
+		if restoreErr := store.Save(current); restoreErr != nil {
+			log.Printf(
+				"failed restoring current metadata for %s: %v",
+				current.App,
+				restoreErr,
+			)
+		} else if restoreErr := syncProxyRoutes(); restoreErr != nil {
+			log.Printf(
+				"failed restoring current proxy route for %s: %v",
+				current.App,
+				restoreErr,
+			)
+		}
+
+		cleanupCandidate()
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"switch proxy to rollback candidate: %w",
+			err,
+		)
+	}
+
+	log.Printf(
+		"Caddy cut over rollback of %s from port %d to healthy candidate port %d",
+		current.App,
+		current.Port,
+		candidatePort,
+	)
+
+	// Put the version we just left at the front of history.
+	// This also means another rollback can move back to it.
 	updatedHistory := append(
 		[]DeploymentVersion{
 			deploymentVersion(current),
@@ -352,9 +261,38 @@ func rollbackDeployment(
 		)
 	}
 
+	// New traffic is already reaching the rollback candidate,
+	// so it is now safe to retire the formerly active container.
+	if current.Container != "" &&
+		current.Container != candidateName &&
+		containerExists(current.Container) {
+
+		if output, err := runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			current.Container,
+		); err != nil {
+			log.Printf(
+				"warning: rollback is live, but old container %s could not be removed: %v\n%s",
+				current.Container,
+				err,
+				output,
+			)
+		} else {
+			log.Printf(
+				"Retired pre-rollback container %s after successful proxy cutover",
+				current.Container,
+			)
+		}
+	}
+
 	log.Printf(
-		"Rolled back %s to image %s",
+		"Zero-downtime rollback of %s completed: port %d -> %d, image %s",
 		current.App,
+		current.Port,
+		candidatePort,
 		previous.Image,
 	)
 

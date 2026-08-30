@@ -213,7 +213,6 @@ func safeRedeploy(
 		deploymentsDir,
 		old.App+"-candidate-"+version,
 	)
-
 	currentPath := filepath.Join(
 		deploymentsDir,
 		old.App,
@@ -234,7 +233,7 @@ func safeRedeploy(
 	defer os.RemoveAll(candidatePath)
 
 	log.Printf(
-		"Building candidate for %s while current version stays live",
+		"Building zero-downtime candidate for %s while current version stays live",
 		old.App,
 	)
 
@@ -249,7 +248,6 @@ func safeRedeploy(
 			"candidate git clone failed:\n%s",
 			output,
 		)
-
 		return DeploymentRecord{}, fmt.Errorf(
 			"git clone candidate: %w",
 			err,
@@ -268,7 +266,6 @@ func safeRedeploy(
 			"candidate Docker build failed:\n%s",
 			output,
 		)
-
 		return DeploymentRecord{}, fmt.Errorf(
 			"build candidate image: %w",
 			err,
@@ -279,34 +276,7 @@ func safeRedeploy(
 		minDeployPort,
 		maxDeployPort,
 	)
-
 	if err != nil {
-		return DeploymentRecord{}, fmt.Errorf(
-			"allocate candidate port: %w",
-			err,
-		)
-	}
-
-	if output, err := runCommand(
-		"",
-		"docker",
-		"run",
-		"-d",
-		"--name",
-		candidateContainer,
-		"-p",
-		fmt.Sprintf(
-			"%d:%d",
-			candidatePort,
-			old.ContainerPort,
-		),
-		newImage,
-	); err != nil {
-		log.Printf(
-			"candidate Docker run failed:\n%s",
-			output,
-		)
-
 		_, _ = runCommand(
 			"",
 			"docker",
@@ -314,11 +284,49 @@ func safeRedeploy(
 			"rm",
 			newImage,
 		)
+		return DeploymentRecord{}, fmt.Errorf(
+			"allocate candidate port: %w",
+			err,
+		)
+	}
 
+	if err := startManagedContainerWithPort(
+		candidateContainer,
+		newImage,
+		candidatePort,
+		old.ContainerPort,
+	); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			newImage,
+		)
 		return DeploymentRecord{}, fmt.Errorf(
 			"start candidate container: %w",
 			err,
 		)
+	}
+
+	cleanupCandidate := func(removeImage bool) {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			candidateContainer,
+		)
+
+		if removeImage {
+			_, _ = runCommand(
+				"",
+				"docker",
+				"image",
+				"rm",
+				newImage,
+			)
+		}
 	}
 
 	if err := verifyContainerStartup(
@@ -328,22 +336,7 @@ func safeRedeploy(
 			candidateContainer,
 			100,
 		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			candidateContainer,
-		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
+		cleanupCandidate(true)
 
 		return DeploymentRecord{}, fmt.Errorf(
 			"candidate failed startup verification: %w; logs: %s",
@@ -360,22 +353,7 @@ func safeRedeploy(
 			candidateContainer,
 			100,
 		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			candidateContainer,
-		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
+		cleanupCandidate(true)
 
 		return DeploymentRecord{}, fmt.Errorf(
 			"candidate failed HTTP health check: %w; logs: %s",
@@ -385,199 +363,79 @@ func safeRedeploy(
 	}
 
 	log.Printf(
-		"Candidate for %s passed startup and HTTP health verification",
+		"Candidate for %s is healthy on port %d; current version is still serving on port %d",
 		old.App,
-	)
-
-	_, _ = runCommand(
-		"",
-		"docker",
-		"rm",
-		"-f",
-		candidateContainer,
-	)
-
-	oldWasRunning :=
-		containerStatus(old.Container) == "running"
-
-	if containerExists(old.Container) {
-		if output, err := runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			old.Container,
-		); err != nil {
-			log.Printf(
-				"failed to remove old container:\n%s",
-				output,
-			)
-
-			return DeploymentRecord{}, fmt.Errorf(
-				"remove old container: %w",
-				err,
-			)
-		}
-	}
-
-	if err := startManagedContainerWithPort(
-		old.Container,
-		newImage,
+		candidatePort,
 		old.Port,
-		old.ContainerPort,
-	); err != nil {
-		rollbackErr := restorePreviousContainer(
-			old,
-			oldWasRunning,
-		)
-
-		if rollbackErr != nil {
-			log.Printf(
-				"rollback also failed for %s: %v",
-				old.App,
-				rollbackErr,
-			)
-		}
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"start new live container: %w",
-			err,
-		)
-	}
-
-	if err := verifyContainerStartup(
-		old.Container,
-	); err != nil {
-		logs, _ := containerLogs(
-			old.Container,
-			100,
-		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			old.Container,
-		)
-
-		rollbackErr := restorePreviousContainer(
-			old,
-			oldWasRunning,
-		)
-
-		if rollbackErr != nil {
-			log.Printf(
-				"rollback also failed for %s: %v",
-				old.App,
-				rollbackErr,
-			)
-		}
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"new live container failed verification: %w; logs: %s",
-			err,
-			logs,
-		)
-	}
-
-	if err := verifyHTTPHealthPath(
-		old.Port,
-		old.HealthPath,
-	); err != nil {
-		logs, _ := containerLogs(
-			old.Container,
-			100,
-		)
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			old.Container,
-		)
-
-		rollbackErr := restorePreviousContainer(
-			old,
-			oldWasRunning,
-		)
-
-		if rollbackErr != nil {
-			log.Printf(
-				"rollback also failed for %s: %v",
-				old.App,
-				rollbackErr,
-			)
-		}
-
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
-
-		return DeploymentRecord{}, fmt.Errorf(
-			"new live container failed HTTP health check: %w; logs: %s",
-			err,
-			logs,
-		)
-	}
+	)
 
 	newRecord := old
+	newRecord.Container = candidateContainer
 	newRecord.Image = newImage
+	newRecord.Port = candidatePort
 
+	// Persist the candidate as the desired active deployment.
+	// The old container is deliberately still running here.
 	if err := store.Save(newRecord); err != nil {
-		_, _ = runCommand(
-			"",
-			"docker",
-			"rm",
-			"-f",
-			old.Container,
+		cleanupCandidate(true)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"save candidate deployment metadata: %w",
+			err,
+		)
+	}
+
+	// Atomically reload Caddy so new requests begin going to the
+	// already-healthy candidate while the old container remains alive.
+	if err := syncProxyRoutes(); err != nil {
+		log.Printf(
+			"proxy cutover failed for %s; restoring old routing: %v",
+			old.App,
+			err,
 		)
 
-		rollbackErr := restorePreviousContainer(
-			old,
-			oldWasRunning,
-		)
-
-		if rollbackErr != nil {
+		if restoreErr := store.Save(old); restoreErr != nil {
 			log.Printf(
-				"rollback also failed for %s: %v",
+				"failed restoring old deployment metadata for %s: %v",
 				old.App,
-				rollbackErr,
+				restoreErr,
+			)
+		} else if restoreErr := syncProxyRoutes(); restoreErr != nil {
+			log.Printf(
+				"failed restoring old proxy route for %s: %v",
+				old.App,
+				restoreErr,
 			)
 		}
 
-		_, _ = runCommand(
-			"",
-			"docker",
-			"image",
-			"rm",
-			newImage,
-		)
+		cleanupCandidate(true)
 
 		return DeploymentRecord{}, fmt.Errorf(
-			"save new deployment metadata: %w",
+			"switch proxy to candidate: %w",
 			err,
+		)
+	}
+
+	log.Printf(
+		"Caddy cut over %s from port %d to healthy candidate port %d",
+		old.App,
+		old.Port,
+		candidatePort,
+	)
+
+	// At this point new traffic is routed to the candidate.
+	// Preserve the old deployment in history before retiring it.
+	pruned, historyErr := historyStore.Push(old)
+	if historyErr != nil {
+		log.Printf(
+			"warning: failed to save deployment history for %s: %v",
+			old.App,
+			historyErr,
+		)
+	} else {
+		removePrunedHistoryImages(
+			pruned,
+			newImage,
 		)
 	}
 
@@ -592,24 +450,38 @@ func safeRedeploy(
 		)
 	}
 
-	pruned, historyErr := historyStore.Push(old)
+	// Only after Caddy is serving the healthy candidate do we retire
+	// the old container. Failure here does not interrupt the new app.
+	if old.Container != "" &&
+		old.Container != candidateContainer &&
+		containerExists(old.Container) {
 
-	if historyErr != nil {
-		log.Printf(
-			"warning: failed to save deployment history for %s: %v",
-			old.App,
-			historyErr,
-		)
-	} else {
-		removePrunedHistoryImages(
-			pruned,
-			newImage,
-		)
+		if output, err := runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			old.Container,
+		); err != nil {
+			log.Printf(
+				"warning: new deployment is live, but old container %s could not be removed: %v\n%s",
+				old.Container,
+				err,
+				output,
+			)
+		} else {
+			log.Printf(
+				"Retired old container %s after successful proxy cutover",
+				old.Container,
+			)
+		}
 	}
 
 	log.Printf(
-		"Safe redeployment of %s completed",
+		"Zero-downtime redeployment of %s completed: %d -> %d",
 		old.App,
+		old.Port,
+		candidatePort,
 	)
 
 	return newRecord, nil

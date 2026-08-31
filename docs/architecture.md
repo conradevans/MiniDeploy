@@ -187,7 +187,8 @@ The landing page, Guest Mode, and guest API remain public. The legacy management
 
 ## Deployment Flow
 
-A new deployment follows this process:
+A new deployment normally requires only `repoUrl`; optional port and health
+values remain available for advanced Dockerfile deployments.
 
 ```text
 Deploy request
@@ -202,7 +203,38 @@ Derive application name
 Clone Git repository
      |
      v
-Docker build
+Inspect repository
+     |
+     +-- Dockerfile exists ----------------------+
+     |                                           |
+     |                                  Dockerfile strategy
+     |                                  manual/default port
+     |                                  manual/default health path
+     |
+     +-- no Dockerfile
+             |
+             v
+      Ordered project detectors
+             |
+             +-- package.json + build script
+             |   + Vite evidence
+             |          |
+             |          v
+             |   vite-static strategy
+             |   npm ci with package-lock.json
+             |   npm install without a lockfile
+             |   container port 80
+             |   health path /
+             |
+             +-- unsupported
+                     |
+                     v
+             Clear detection error
+
+Selected build strategy
+     |
+     v
+Versioned Docker image build
      |
      v
 Allocate host port
@@ -228,6 +260,29 @@ Reload Caddy
      v
 Application live
 ```
+
+Strategy selection is ordered and extensible. A repository-root `Dockerfile`
+is authoritative, while later detectors can add supported project types without
+placing runtime-specific logic in the deployment orchestrator. The Vite
+detector reads `package.json` and known `vite.config.*` filenames; it does not
+execute repository configuration merely to classify the project.
+
+For `vite-static`, MiniDeploy writes a temporary generated Dockerfile outside
+the cloned repository and uses the repository only as the Docker build context.
+The build uses:
+
+```text
+node:24-alpine
+npm ci --no-audit --no-fund        when package-lock.json is valid
+npm install --no-audit --no-fund   when no package lock exists
+npm run build -- --base=/ --outDir=dist
+nginx:stable-alpine
+```
+
+Forcing the root base makes repositories with a development subpath suitable
+for their generated ReactorLab hostname. The nginx runtime serves `dist/` on
+container port 80 and falls back to `index.html` for unknown paths so client-side
+SPA routes can load directly. Generated files never modify the Git worktree.
 
 ## Zero-Downtime Redeployment
 
@@ -290,9 +345,14 @@ Historical records preserve their own:
 ```text
 containerPort
 healthPath
+strategy
+packageManager
+packageInstallMode
 ```
 
 Legacy history entries fall back to the current deployment configuration.
+Existing deployment records without a strategy are normalized to `dockerfile`,
+preserving pre-zero-config behavior.
 
 ## Persistence
 
@@ -309,6 +369,11 @@ data/deployments.json
 data/deployment-history.json
 data/deploy-logs/
 ```
+
+Each deployment persists its selected strategy. Vite deployments also persist
+the package manager and install mode, so manual redeploys and signed webhook
+redeploys reuse the reviewed decision instead of reclassifying the repository.
+Rollback history carries the same fields.
 
 Docker containers use:
 
@@ -421,6 +486,13 @@ Public application hostnames under `*.reactorlab.dev` enter through Cloudflare T
 ```
 
 Docker application ports are not bound to LAN-facing interfaces.
+
+Generated Vite builds receive neither MiniDeploy's environment nor secrets and
+mount neither the Docker socket nor MiniDeploy internal paths. Their generated
+Dockerfiles live in service-owned temporary storage outside the cloned Git
+repository. Repository build scripts still execute code during image builds, so
+the operator trust boundary remains reviewed repositories rather than arbitrary
+multi-tenant input.
 
 ## HTTP Security
 

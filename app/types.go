@@ -22,13 +22,15 @@ type DeployRequest struct {
 }
 
 type DeploymentResponse struct {
-	App           string `json:"app"`
-	RepoURL       string `json:"repoUrl"`
-	Container     string `json:"container"`
-	Image         string `json:"image"`
-	Port          int    `json:"port"`
-	ContainerPort int    `json:"containerPort"`
-	HealthPath    string `json:"healthPath"`
+	App            string `json:"app"`
+	RepoURL        string `json:"repoUrl"`
+	Container      string `json:"container"`
+	Image          string `json:"image"`
+	Port           int    `json:"port"`
+	ContainerPort  int    `json:"containerPort"`
+	HealthPath     string `json:"healthPath"`
+	Strategy       string `json:"strategy"`
+	PackageManager string `json:"packageManager,omitempty"`
 
 	Status string `json:"status"`
 }

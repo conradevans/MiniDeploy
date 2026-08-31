@@ -20,6 +20,9 @@
 - [x] Support custom container ports
 - [x] Support custom HTTP health paths
 - [x] Persist deployment metadata
+- [x] Detect Dockerfile and zero-config React/Vite deployment strategies
+- [x] Package Vite production bundles in a generated static runtime
+- [x] Persist deployment strategy for redeploy, webhook, history, and rollback
 - [x] Restart applications
 - [x] Delete applications
 
@@ -69,6 +72,8 @@
 - [x] Initial HTML dashboard
 - [x] React/Vite dashboard
 - [x] Deploy applications
+- [x] Deploy standard React/Vite repositories from only a repository URL
+- [x] Keep Dockerfile port and health settings behind advanced controls
 - [x] View application status
 - [x] View public URLs
 - [x] Runtime logs
@@ -117,6 +122,9 @@
 - [x] Public Admin authorization matrix
 - [x] Route-manipulation regression tests
 - [x] React routing and Guest Mode tests
+- [x] Deployment-strategy detection and false-positive tests
+- [x] Vite package-lock, generated runtime, and SPA-fallback tests
+- [x] Zero-config Admin form serialization tests
 
 ## v1 Final Polish
 
@@ -126,7 +134,7 @@
 - [ ] Review Docker image cleanup strategy
 - [ ] Add screenshots to README
 - [ ] Record a short end-to-end demo
-- [ ] Deploy a larger real application through MiniDeploy
+- [x] Deploy a larger real application through MiniDeploy
 - [ ] Final fresh-server setup documentation
 
 ## Possible v2 Features

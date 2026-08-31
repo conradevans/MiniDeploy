@@ -189,11 +189,48 @@
   letter-spacing: 1.2px;
 }
 
+.deploy-copy {
+  max-width: 720px;
+  margin: -6px 0 17px;
+  color: #717986;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .deploy-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 155px 155px auto;
+  grid-template-columns: minmax(260px, 1fr) auto;
   gap: 10px;
   align-items: end;
+}
+
+.advanced-toggle {
+  margin-top: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7e8794;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.advanced-toggle:hover:not(:disabled) {
+  color: #c4c9d0;
+}
+
+.advanced-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: 155px minmax(220px, 1fr);
+  gap: 10px;
+  max-width: 520px;
+  margin-top: 15px;
 }
 
 .field {
@@ -1056,11 +1093,11 @@ footer {
   }
 
   .deploy-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .repo-field {
-    grid-column: 1 / -1;
+  .advanced-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
   .metadata-grid {
@@ -1192,12 +1229,13 @@ footer {
   }
 
   .deploy-grid,
+  .advanced-grid,
   .metadata-grid {
     grid-template-columns: 1fr;
   }
 
-  .repo-field {
-    grid-column: auto;
+  .deploy-button {
+    width: 100%;
   }
 
   .deployment-header {

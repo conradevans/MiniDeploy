@@ -64,6 +64,25 @@ If the candidate fails to build or becomes unhealthy, the existing deployment st
 
 MiniDeploy stores previous deployment versions and can restore an earlier Docker image using the same candidate-and-cutover strategy. Deployment history preserves the repository, image, container port, health path, previous host port, and deployment timestamp.
 
+### Zero-Config React/Vite Deployments
+
+The Admin deploy form normally requires only a Git repository URL. After
+cloning, MiniDeploy selects a conservative deployment strategy:
+
+- A repository-root `Dockerfile` always uses the existing Dockerfile strategy
+  and any advanced container-port or health-path settings.
+- A repository without a Dockerfile is selected as `vite-static` only when it
+  has `package.json`, a build script, and Vite build-system evidence.
+- An npm lockfile selects `npm ci`; otherwise the Vite strategy uses
+  `npm install`.
+
+The Vite strategy generates a temporary multi-stage Dockerfile outside the
+cloned repository. Node 24 builds the application with a root base and `dist`
+output, then stable Alpine nginx serves it on port 80 with SPA fallback.
+Generated files are not committed to or written into the source repository.
+The selected strategy and npm install mode are persisted for redeploys,
+webhooks, history, and rollbacks.
+
 ### GitHub Auto-Deploy
 
 Signed GitHub push webhooks can trigger automatic redeployment of matching applications on pushes to `main`. Webhook signatures are validated with HMAC-SHA256.
@@ -103,7 +122,7 @@ The React/Vite frontend selects one of three server-defined experiences:
 
 Admin Mode supports:
 
-- creating deployments
+- creating Dockerfile or zero-config React/Vite deployments
 - viewing application status and configuration
 - opening public application URLs
 - runtime logs
@@ -249,6 +268,8 @@ MiniDeploy has been tested for:
 - GitHub webhook delivery
 - Go race conditions
 - direct-LAN isolation of application ports
+- deterministic Dockerfile/Vite strategy selection
+- strategy persistence across redeploy, webhook, history, and rollback paths
 
 A failed candidate release does not replace the healthy live deployment.
 
@@ -270,6 +291,9 @@ Security measures include:
 - HMAC-authenticated GitHub webhooks
 - Cloudflare Tunnel instead of public router port forwarding
 - loopback-only Docker application bindings
+- generated Vite Dockerfiles kept outside cloned repositories
+- no Docker socket, MiniDeploy environment, secrets, or internal paths passed
+  into generated application containers
 - Caddy-controlled public ingress
 - HTTP security headers
 - cross-origin protections
@@ -279,7 +303,7 @@ Security measures include:
 
 The server does not trust plain Cloudflare identity headers. A cryptographically valid Access assertion is required. Cross-origin state-changing browser requests are rejected even when an Access session exists.
 
-Building arbitrary Dockerfiles is privileged, so MiniDeploy is not currently intended to run untrusted multi-tenant workloads.
+Repository builds execute code, and arbitrary Dockerfiles remain privileged. MiniDeploy is intended for operator-reviewed repositories rather than untrusted multi-tenant workloads.
 
 ## Development
 

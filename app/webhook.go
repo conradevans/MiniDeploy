@@ -129,21 +129,10 @@ func githubWebhookHandler(
 		return
 	}
 
-	var deployment DeploymentRecord
-	found := false
-
-	for _, record := range records {
-		if normalizeRepoURL(record.RepoURL) ==
-			normalizeRepoURL(
-				payload.Repository.CloneURL,
-			) {
-			deployment = normalizeDeploymentRecord(
-				record,
-			)
-			found = true
-			break
-		}
-	}
+	deployment, found := deploymentForWebhook(
+		records,
+		payload.Repository.CloneURL,
+	)
 
 	if !found {
 		writeJSON(
@@ -190,6 +179,26 @@ func githubWebhookHandler(
 			newRecord.Image,
 		)
 	}(deployment)
+}
+
+func deploymentForWebhook(
+	records []DeploymentRecord,
+	cloneURL string,
+) (DeploymentRecord, bool) {
+	normalizedCloneURL := normalizeRepoURL(cloneURL)
+
+	for _, record := range records {
+		if normalizeRepoURL(record.RepoURL) !=
+			normalizedCloneURL {
+			continue
+		}
+
+		return normalizeDeploymentRecord(
+			record,
+		), true
+	}
+
+	return DeploymentRecord{}, false
 }
 
 func validGitHubSignature(

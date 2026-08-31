@@ -50,6 +50,10 @@ func validateDeploymentConfig(
 func normalizeDeploymentRecord(
 	record DeploymentRecord,
 ) DeploymentRecord {
+	if strings.TrimSpace(record.Strategy) == "" {
+		record.Strategy = deploymentStrategyDockerfile
+	}
+
 	record.ContainerPort = normalizedContainerPort(
 		record.ContainerPort,
 	)

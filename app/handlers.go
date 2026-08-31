@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 )
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +87,18 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		if errors.Is(
+			err,
+			ErrNoSupportedDeploymentStrategy,
+		) {
+			http.Error(
+				w,
+				ErrNoSupportedDeploymentStrategy.Error(),
+				http.StatusUnprocessableEntity,
+			)
+			return
+		}
+
 		deploymentEvent(
 			appName,
 			"ERROR: deployment failed: %v",
@@ -541,6 +552,21 @@ func deleteDeploymentHandler(
 		return
 	}
 
+	deployPath, err := managedDeploymentPath(record.App)
+	if err != nil {
+		log.Printf(
+			"refusing unsafe deployment source path for %s: %v",
+			record.App,
+			err,
+		)
+		http.Error(
+			w,
+			"invalid deployment source path",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	if containerExists(record.Container) {
 		output, err := runCommand(
 			"",
@@ -566,19 +592,18 @@ func deleteDeploymentHandler(
 		}
 	}
 
-	deployPath := filepath.Join(
-		deploymentsDir,
-		record.App,
-	)
-
-	if err := os.RemoveAll(
-		deployPath,
-	); err != nil {
+	if err := removeManagedDeploymentPath(deployPath); err != nil {
 		log.Printf(
 			"failed to remove source for %s: %v",
 			record.App,
 			err,
 		)
+		http.Error(
+			w,
+			"failed to remove deployment source",
+			http.StatusInternalServerError,
+		)
+		return
 	}
 
 	versions, historyErr := historyStore.List(
@@ -705,14 +730,16 @@ func deploymentResponse(
 	record = normalizeDeploymentRecord(record)
 
 	return DeploymentResponse{
-		App:           record.App,
-		RepoURL:       record.RepoURL,
-		Container:     record.Container,
-		Image:         record.Image,
-		Port:          record.Port,
-		ContainerPort: record.ContainerPort,
-		HealthPath:    record.HealthPath,
-		Status:        containerStatus(record.Container),
+		App:            record.App,
+		RepoURL:        record.RepoURL,
+		Container:      record.Container,
+		Image:          record.Image,
+		Port:           record.Port,
+		ContainerPort:  record.ContainerPort,
+		HealthPath:     record.HealthPath,
+		Strategy:       record.Strategy,
+		PackageManager: record.PackageManager,
+		Status:         containerStatus(record.Container),
 	}
 }
 

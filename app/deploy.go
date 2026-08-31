@@ -41,12 +41,17 @@ func deployRepository(
 	resetDeploymentLog(appName, "deployment")
 	deploymentEvent(
 		appName,
-		"Preparing deployment: container port %d, health path %s",
-		containerPort,
-		healthPath,
+		"Preparing deployment.",
 	)
 
-	deployPath := filepath.Join(deploymentsDir, appName)
+	deployPath, err := managedDeploymentPath(appName)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"resolve deployment path: %w",
+			err,
+		)
+	}
+
 	imageName := versionedImageName(appName)
 	containerName := "minideploy-" + appName
 
@@ -57,7 +62,7 @@ func deployRepository(
 		)
 	}
 
-	if err := os.RemoveAll(deployPath); err != nil {
+	if err := removeManagedDeploymentPath(deployPath); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"prepare deployment directory: %w",
 			err,
@@ -70,6 +75,7 @@ func deployRepository(
 		"",
 		"git",
 		"clone",
+		"--",
 		repoURL,
 		deployPath,
 	); err != nil {
@@ -82,15 +88,49 @@ func deployRepository(
 	}
 
 	deploymentEvent(appName, "Repository cloned.")
+	deploymentEvent(appName, "Inspecting repository...")
+
+	plan, err := detectDeploymentStrategy(
+		deployPath,
+		deploymentConfig{
+			ContainerPort: containerPort,
+			HealthPath:    healthPath,
+		},
+	)
+	if err != nil {
+		deploymentEvent(
+			appName,
+			"ERROR: deployment strategy detection failed: %v",
+			err,
+		)
+
+		return DeploymentRecord{}, err
+	}
+
+	containerPort = plan.ContainerPort
+	healthPath = plan.HealthPath
+
+	if err := validateDeploymentConfig(
+		containerPort,
+		healthPath,
+	); err != nil {
+		return DeploymentRecord{}, err
+	}
+
+	describeDeploymentPlan(appName, plan)
+	deploymentEvent(
+		appName,
+		"Selected strategy %s: container port %d, health path %s",
+		plan.Strategy,
+		containerPort,
+		healthPath,
+	)
 	deploymentEvent(appName, "Building Docker image...")
 
-	if output, err := runCommand(
+	if output, err := buildDeploymentImage(
 		deployPath,
-		"docker",
-		"build",
-		"-t",
 		imageName,
-		".",
+		plan,
 	); err != nil {
 		log.Printf("docker build failed:\n%s", output)
 		deploymentEvent(
@@ -201,13 +241,16 @@ func deployRepository(
 	deploymentEvent(appName, "HTTP health check passed.")
 
 	record := DeploymentRecord{
-		App:           appName,
-		RepoURL:       repoURL,
-		Container:     containerName,
-		Image:         imageName,
-		Port:          port,
-		ContainerPort: containerPort,
-		HealthPath:    healthPath,
+		App:                appName,
+		RepoURL:            repoURL,
+		Container:          containerName,
+		Image:              imageName,
+		Port:               port,
+		ContainerPort:      containerPort,
+		HealthPath:         healthPath,
+		Strategy:           plan.Strategy,
+		PackageManager:     plan.PackageManager,
+		PackageInstallMode: plan.PackageInstallMode,
 	}
 
 	if err := store.Save(record); err != nil {
@@ -261,14 +304,23 @@ func safeRedeploy(
 		time.Now().UnixNano(),
 	)
 
-	candidatePath := filepath.Join(
-		deploymentsDir,
-		old.App+"-candidate-"+version,
+	currentPath, err := managedDeploymentPath(old.App)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"resolve current deployment path: %w",
+			err,
+		)
+	}
+
+	candidatePath, err := managedDeploymentPath(
+		old.App + "-candidate-" + version,
 	)
-	currentPath := filepath.Join(
-		deploymentsDir,
-		old.App,
-	)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"resolve candidate deployment path: %w",
+			err,
+		)
+	}
 
 	newImage := fmt.Sprintf(
 		"minideploy-%s:%s",
@@ -282,7 +334,17 @@ func safeRedeploy(
 		version,
 	)
 
-	defer os.RemoveAll(candidatePath)
+	defer func() {
+		if err := removeManagedDeploymentPath(
+			candidatePath,
+		); err != nil {
+			log.Printf(
+				"warning: failed to clean candidate source path %s: %v",
+				candidatePath,
+				err,
+			)
+		}
+	}()
 
 	log.Printf(
 		"Building zero-downtime candidate for %s while current version stays live",
@@ -298,6 +360,7 @@ func safeRedeploy(
 		"",
 		"git",
 		"clone",
+		"--",
 		old.RepoURL,
 		candidatePath,
 	); err != nil {
@@ -313,16 +376,37 @@ func safeRedeploy(
 
 	deploymentEvent(
 		old.App,
-		"Repository cloned. Building candidate Docker image...",
+		"Repository cloned. Reusing persisted %s strategy...",
+		old.Strategy,
 	)
 
-	if output, err := runCommand(
+	plan, err := deploymentStrategyForRecord(
+		old,
 		candidatePath,
-		"docker",
-		"build",
-		"-t",
+	)
+	if err != nil {
+		deploymentEvent(
+			old.App,
+			"ERROR: persisted deployment strategy is unusable: %v",
+			err,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"prepare candidate strategy: %w",
+			err,
+		)
+	}
+
+	describeDeploymentPlan(old.App, plan)
+	deploymentEvent(
+		old.App,
+		"Building candidate Docker image...",
+	)
+
+	if output, err := buildDeploymentImage(
+		candidatePath,
 		newImage,
-		".",
+		plan,
 	); err != nil {
 		log.Printf(
 			"candidate Docker build failed:\n%s",
@@ -374,7 +458,7 @@ func safeRedeploy(
 		candidateContainer,
 		newImage,
 		candidatePort,
-		old.ContainerPort,
+		plan.ContainerPort,
 	); err != nil {
 		_, _ = runCommand(
 			"",
@@ -427,7 +511,7 @@ func safeRedeploy(
 
 	if err := verifyHTTPHealthPath(
 		candidatePort,
-		old.HealthPath,
+		plan.HealthPath,
 	); err != nil {
 		logs, _ := containerLogs(
 			candidateContainer,
@@ -458,6 +542,11 @@ func safeRedeploy(
 	newRecord.Container = candidateContainer
 	newRecord.Image = newImage
 	newRecord.Port = candidatePort
+	newRecord.ContainerPort = plan.ContainerPort
+	newRecord.HealthPath = plan.HealthPath
+	newRecord.Strategy = plan.Strategy
+	newRecord.PackageManager = plan.PackageManager
+	newRecord.PackageInstallMode = plan.PackageInstallMode
 
 	// Persist the candidate as the desired active deployment.
 	// The old container is deliberately still running here.
@@ -588,7 +677,29 @@ func replaceDeploymentSource(
 	currentPath string,
 	candidatePath string,
 ) error {
-	if err := os.RemoveAll(currentPath); err != nil {
+	currentPath, err := strictChildPath(
+		deploymentsDir,
+		currentPath,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"validate current deployment path: %w",
+			err,
+		)
+	}
+
+	candidatePath, err = strictChildPath(
+		deploymentsDir,
+		candidatePath,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"validate candidate deployment path: %w",
+			err,
+		)
+	}
+
+	if err := removeManagedDeploymentPath(currentPath); err != nil {
 		return err
 	}
 
@@ -627,7 +738,7 @@ func repoName(
 		".git",
 	)
 
-	if name == "" || name == "." {
+	if validateApplicationName(name) != nil {
 		return ""
 	}
 

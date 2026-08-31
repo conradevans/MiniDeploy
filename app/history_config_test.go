@@ -55,9 +55,12 @@ func TestLegacyDeploymentVersionUsesFallbackConfig(t *testing.T) {
 	}
 
 	current := DeploymentRecord{
-		App:           "legacy",
-		ContainerPort: 3000,
-		HealthPath:    "/health",
+		App:                "legacy",
+		ContainerPort:      3000,
+		HealthPath:         "/health",
+		Strategy:           deploymentStrategyViteStatic,
+		PackageManager:     packageManagerNPM,
+		PackageInstallMode: packageInstallModeCI,
 	}
 
 	restored := legacy.RecordWithFallback(current)
@@ -73,6 +76,15 @@ func TestLegacyDeploymentVersionUsesFallbackConfig(t *testing.T) {
 		t.Fatalf(
 			"expected legacy fallback health path /health, got %q",
 			restored.HealthPath,
+		)
+	}
+
+	if restored.Strategy != deploymentStrategyViteStatic ||
+		restored.PackageManager != packageManagerNPM ||
+		restored.PackageInstallMode != packageInstallModeCI {
+		t.Fatalf(
+			"expected legacy fallback strategy fields, got %#v",
+			restored,
 		)
 	}
 }

@@ -11,13 +11,16 @@ import (
 var ErrDeploymentNotFound = errors.New("deployment not found")
 
 type DeploymentRecord struct {
-	App           string `json:"app"`
-	RepoURL       string `json:"repoUrl"`
-	Container     string `json:"container"`
-	Image         string `json:"image"`
-	Port          int    `json:"port"`
-	ContainerPort int    `json:"containerPort"`
-	HealthPath    string `json:"healthPath"`
+	App                string `json:"app"`
+	RepoURL            string `json:"repoUrl"`
+	Container          string `json:"container"`
+	Image              string `json:"image"`
+	Port               int    `json:"port"`
+	ContainerPort      int    `json:"containerPort"`
+	HealthPath         string `json:"healthPath"`
+	Strategy           string `json:"strategy,omitempty"`
+	PackageManager     string `json:"packageManager,omitempty"`
+	PackageInstallMode string `json:"packageInstallMode,omitempty"`
 }
 
 type DeploymentStore interface {

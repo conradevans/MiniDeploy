@@ -10,49 +10,57 @@ import (
 )
 
 type DeploymentVersion struct {
-	App           string    `json:"app"`
-	RepoURL       string    `json:"repoUrl"`
-	Container     string    `json:"container"`
-	Image         string    `json:"image"`
-	Port          int       `json:"port"`
-	ContainerPort int       `json:"containerPort"`
-	HealthPath    string    `json:"healthPath"`
-	DeployedAt    time.Time `json:"deployedAt"`
+	App                string    `json:"app"`
+	RepoURL            string    `json:"repoUrl"`
+	Container          string    `json:"container"`
+	Image              string    `json:"image"`
+	Port               int       `json:"port"`
+	ContainerPort      int       `json:"containerPort"`
+	HealthPath         string    `json:"healthPath"`
+	Strategy           string    `json:"strategy,omitempty"`
+	PackageManager     string    `json:"packageManager,omitempty"`
+	PackageInstallMode string    `json:"packageInstallMode,omitempty"`
+	DeployedAt         time.Time `json:"deployedAt"`
 }
 
 func deploymentVersion(record DeploymentRecord) DeploymentVersion {
 	record = normalizeDeploymentRecord(record)
 
 	return DeploymentVersion{
-		App:           record.App,
-		RepoURL:       record.RepoURL,
-		Container:     record.Container,
-		Image:         record.Image,
-		Port:          record.Port,
-		ContainerPort: record.ContainerPort,
-		HealthPath:    record.HealthPath,
-		DeployedAt:    time.Now().UTC(),
+		App:                record.App,
+		RepoURL:            record.RepoURL,
+		Container:          record.Container,
+		Image:              record.Image,
+		Port:               record.Port,
+		ContainerPort:      record.ContainerPort,
+		HealthPath:         record.HealthPath,
+		Strategy:           record.Strategy,
+		PackageManager:     record.PackageManager,
+		PackageInstallMode: record.PackageInstallMode,
+		DeployedAt:         time.Now().UTC(),
 	}
 }
 
 func (v DeploymentVersion) Record() DeploymentRecord {
 	return normalizeDeploymentRecord(
 		DeploymentRecord{
-			App:           v.App,
-			RepoURL:       v.RepoURL,
-			Container:     v.Container,
-			Image:         v.Image,
-			Port:          v.Port,
-			ContainerPort: v.ContainerPort,
-			HealthPath:    v.HealthPath,
+			App:                v.App,
+			RepoURL:            v.RepoURL,
+			Container:          v.Container,
+			Image:              v.Image,
+			Port:               v.Port,
+			ContainerPort:      v.ContainerPort,
+			HealthPath:         v.HealthPath,
+			Strategy:           v.Strategy,
+			PackageManager:     v.PackageManager,
+			PackageInstallMode: v.PackageInstallMode,
 		},
 	)
 }
 
-// RecordWithFallback supports history written before ContainerPort
-// and HealthPath were persisted. New history entries are completely
-// self-contained, while legacy entries safely inherit the current
-// deployment configuration.
+// RecordWithFallback supports history written before deployment build
+// configuration was persisted. New history entries are self-contained,
+// while legacy entries safely inherit the current deployment configuration.
 func (v DeploymentVersion) RecordWithFallback(
 	fallback DeploymentRecord,
 ) DeploymentRecord {
@@ -66,6 +74,18 @@ func (v DeploymentVersion) RecordWithFallback(
 
 	if v.HealthPath == "" {
 		record.HealthPath = fallback.HealthPath
+	}
+
+	if v.Strategy == "" {
+		record.Strategy = fallback.Strategy
+	}
+
+	if v.PackageManager == "" {
+		record.PackageManager = fallback.PackageManager
+	}
+
+	if v.PackageInstallMode == "" {
+		record.PackageInstallMode = fallback.PackageInstallMode
 	}
 
 	return normalizeDeploymentRecord(record)

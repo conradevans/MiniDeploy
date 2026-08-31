@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,26 @@ func TestRepoName(t *testing.T) {
 			url:  "",
 			want: "",
 		},
+		{
+			name: "git suffix becomes empty",
+			url:  "https://github.com/conradevans/.git",
+			want: "",
+		},
+		{
+			name: "dot path",
+			url:  "https://github.com/conradevans/.",
+			want: "",
+		},
+		{
+			name: "dot dot path",
+			url:  "https://github.com/conradevans/..",
+			want: "",
+		},
+		{
+			name: "git suffix becomes traversal",
+			url:  "https://github.com/conradevans/...git",
+			want: "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -53,6 +74,124 @@ func TestRepoName(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestApplicationNameValidation(t *testing.T) {
+	for _, name := range []string{
+		"",
+		" ",
+		".",
+		"..",
+		"../portfolio",
+		"portfolio/..",
+		"..\\portfolio",
+		"portfolio\\..",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateApplicationName(name); err == nil {
+				t.Fatalf(
+					"validateApplicationName(%q) unexpectedly succeeded",
+					name,
+				)
+			}
+		})
+	}
+
+	for _, name := range []string{
+		"portfolio",
+		"MyScheduler",
+		"hello-minideploy.git",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateApplicationName(name); err != nil {
+				t.Fatalf(
+					"validateApplicationName(%q) error: %v",
+					name,
+					err,
+				)
+			}
+		})
+	}
+}
+
+func TestStrictChildPathContainment(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "managed-deployments")
+
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("MkdirAll(root) error: %v", err)
+	}
+
+	normalChild := filepath.Join(root, "portfolio")
+	got, err := strictChildPath(root, normalChild)
+	if err != nil {
+		t.Fatalf("strictChildPath(normal child) error: %v", err)
+	}
+
+	want, err := filepath.Abs(normalChild)
+	if err != nil {
+		t.Fatalf("filepath.Abs(normal child) error: %v", err)
+	}
+
+	if got != want {
+		t.Fatalf("strict child = %q; want %q", got, want)
+	}
+
+	for _, candidate := range []string{
+		root,
+		filepath.Join(root, ".."),
+		filepath.Join(root, "..", "escaped"),
+	} {
+		if _, err := strictChildPath(root, candidate); err == nil {
+			t.Fatalf(
+				"strictChildPath(%q) unexpectedly succeeded",
+				candidate,
+			)
+		}
+	}
+}
+
+func TestUnsafeRemovalCannotDeleteManagedRootOrParent(
+	t *testing.T,
+) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "managed-deployments")
+	sentinel := filepath.Join(parent, "project-sentinel")
+
+	if err := os.MkdirAll(root, 0755); err != nil {
+		t.Fatalf("MkdirAll(root) error: %v", err)
+	}
+
+	if err := os.WriteFile(
+		sentinel,
+		[]byte("must remain"),
+		0644,
+	); err != nil {
+		t.Fatalf("WriteFile(sentinel) error: %v", err)
+	}
+
+	for _, candidate := range []string{
+		root,
+		filepath.Join(root, ".."),
+	} {
+		if err := removeStrictChildPath(
+			root,
+			candidate,
+		); err == nil {
+			t.Fatalf(
+				"removeStrictChildPath(%q) unexpectedly succeeded",
+				candidate,
+			)
+		}
+	}
+
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("managed root was removed: %v", err)
+	}
+
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("parent/project sentinel was removed: %v", err)
 	}
 }
 

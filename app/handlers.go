@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log"
@@ -746,9 +747,53 @@ func dashboardHandler(
 		return
 	}
 
-	http.ServeFile(
-		w,
-		r,
-		"/srv/minideploy/frontend/dist/index.html",
+	serveFrontendIndex(w, frontendModePrivateAdmin)
+}
+
+var frontendIndexPath = "/srv/minideploy/frontend/dist/index.html"
+
+func serveFrontendIndex(
+	w http.ResponseWriter,
+	mode string,
+) {
+	const modeMeta = `name="minideploy-mode" content="public"`
+
+	index, err := os.ReadFile(
+		frontendIndexPath,
 	)
+	if err != nil {
+		log.Printf("failed to read frontend index: %v", err)
+		http.Error(
+			w,
+			"frontend unavailable",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if !bytes.Contains(index, []byte(modeMeta)) {
+		log.Printf("frontend index is missing runtime mode metadata")
+		http.Error(
+			w,
+			"frontend unavailable",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	modeMetaValue := `name="minideploy-mode" content="` +
+		mode + `"`
+
+	index = bytes.Replace(
+		index,
+		[]byte(modeMeta),
+		[]byte(modeMetaValue),
+		1,
+	)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if _, err := w.Write(index); err != nil {
+		log.Printf("failed to write frontend index: %v", err)
+	}
 }

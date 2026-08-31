@@ -4,58 +4,61 @@
 
 MiniDeploy is a single-server deployment platform running on Ubuntu Server.
 
-The system separates the private management plane from public application traffic.
+The system separates public browsing, authenticated administration, emergency management, webhook automation, and application traffic.
 
 ```text
-                         PUBLIC INTERNET
-                               |
-                               v
-                       Cloudflare Edge
-                               |
-                               v
-                      Cloudflare Tunnel
-                               |
-                   +-----------+-----------+
-                   |                       |
-                   v                       v
-           webhook.reactorlab.dev   *.reactorlab.dev
-                   |                       |
-                   v                       v
-             Caddy :9001              Caddy :9002
-                   |                       |
-                   v                       |
-          127.0.0.1:9000                  |
-             MiniDeploy                   |
-                 Go API                   |
-                   |                       |
-                   +-----------+-----------+
-                               |
-                               v
-                         Caddy routing
-                               |
-                    +----------+----------+
-                    |                     |
-                    v                     v
-             127.0.0.1:8081        127.0.0.1:8082
-                    |                     |
-                    v                     v
-             Docker App A          Docker App B
+                              PUBLIC INTERNET
+                                    |
+                                    v
+                            Cloudflare Edge
+                                    |
+                  +-----------------+------------------+
+                  |                                    |
+       minideploy.reactorlab.dev             *.reactorlab.dev
+                  |                                    |
+       +----------+-----------+                        |
+       |                      |                        |
+   /, /guest/*       /admin/*, /api/admin/*             |
+     public          Cloudflare Access                  |
+                     exact identity +                   |
+                     biometric MFA                      |
+       |                      |                        |
+       +----------+-----------+                        |
+                  |                                    |
+                  v                                    v
+          Cloudflare Tunnel                     Cloudflare Tunnel
+                  |                                    |
+                  +-----------------+------------------+
+                                    |
+                               Caddy :9002
+                         +----------+----------+
+                         |                     |
+                         v                     v
+                  127.0.0.1:9003        127.0.0.1:808x
+                  MiniDeploy public       Docker apps
+                  origin listener
+
+GitHub -> webhook.reactorlab.dev -> Tunnel -> Caddy :9001
+       -> 127.0.0.1:9000/webhooks/github -> HMAC validation
+
+SSH key holder -> local port forward -> 127.0.0.1:9000
+                 emergency full-management listener
 ```
 
-The dashboard is not exposed through the public Cloudflare ingress.
+Only the public landing page and Guest Mode are anonymous. Cloudflare Access protects the Admin paths, and the Go backend independently verifies the Access JWT before any admin handler runs.
 
-Remote management is performed using an SSH port forward:
+Remote emergency management remains available using an SSH port forward:
 
 ```text
-Mac browser
+Operator browser
     |
 localhost:9000
     |
 SSH tunnel
     |
-127.0.0.1:9000 on the Dell
+127.0.0.1:9000 on the server
     |
-MiniDeploy
+MiniDeploy private Admin dashboard/API
 ```
 
 ## Components
@@ -81,25 +84,33 @@ Responsibilities include:
 - performing rollbacks
 - processing GitHub webhooks
 
-The HTTP server listens exclusively on:
+The process starts two independent HTTP servers:
 
 ```text
-127.0.0.1:9000
+127.0.0.1:9000  private emergency management and GitHub webhook handlers
+127.0.0.1:9003  public landing, Guest Mode, and Access-protected Admin routes
 ```
+
+Both listeners are loopback-only. The public listener is reachable from the internet only through Cloudflare Tunnel and Caddy. Failure to construct the Access validator disables the public Admin routes while leaving the landing page, Guest Mode, webhook path, and SSH emergency plane available.
 
 ### React Dashboard
 
-The React dashboard is built with Vite.
+The React frontend is built with Vite. Production files are generated under `frontend/dist/` and served by both Go listeners.
 
-Production files are generated under:
+The server writes a runtime-mode metadata value into the HTML response:
 
 ```text
-frontend/dist/
+public         landing, Guest Mode, or protected public Admin routing
+private-admin  emergency port-9000 Admin routing
 ```
 
-The Go service serves the production React bundle.
+The public frontend uses separate clients:
 
-The frontend communicates with the Go API using relative URLs so the UI and API remain on the same origin.
+- Guest Mode can call only `/api/guest/deployments`.
+- Public Admin Mode calls only `/api/admin/*`.
+- Private Admin Mode retains the original port-9000 paths.
+
+Route selection affects presentation and API base paths only. Authorization is enforced by the Go handlers, not by hidden buttons or React state.
 
 ### Docker
 
@@ -133,7 +144,7 @@ Public traffic must pass through the intended ingress path.
 
 Caddy acts as MiniDeploy's reverse proxy.
 
-MiniDeploy generates routing configuration dynamically after deployment changes.
+The static Caddy configuration routes `minideploy.reactorlab.dev` to `127.0.0.1:9003` before importing generated application routes. MiniDeploy generates those application routes dynamically after deployment changes.
 
 Two generated route files are maintained:
 
@@ -148,6 +159,8 @@ Public routes use hostnames such as:
 example.reactorlab.dev
 ```
 
+The reserved `minideploy` application label cannot be deployed, preventing generated routes from shadowing the public MiniDeploy site.
+
 ### Cloudflare Tunnel
 
 Cloudflare Tunnel provides public connectivity without exposing inbound application ports on the router.
@@ -155,18 +168,22 @@ Cloudflare Tunnel provides public connectivity without exposing inbound applicat
 Current ingress is separated into:
 
 ```text
-webhook.reactorlab.dev
+webhook.reactorlab.dev  -> Caddy :9001 -> 127.0.0.1:9000/webhooks/github
+*.reactorlab.dev        -> Caddy :9002
 ```
 
-for GitHub webhook traffic and:
+Within `*.reactorlab.dev`, Caddy sends the MiniDeploy hostname to port 9003 and generated application hostnames to their loopback Docker ports.
+
+Cloudflare Access applies only to these MiniDeploy paths:
 
 ```text
-*.reactorlab.dev
+/admin
+/admin/*
+/api/admin
+/api/admin/*
 ```
 
-for deployed applications.
-
-The management API is intentionally excluded.
+The landing page, Guest Mode, and guest API remain public. The legacy management API is intentionally absent from port 9003 and therefore from this ingress path.
 
 ## Deployment Flow
 
@@ -342,7 +359,40 @@ Only signed webhook requests are accepted for deployment processing.
 
 ## Security Boundaries
 
-### Management Plane
+### Public Guest Plane
+
+Anonymous visitors can reach:
+
+```text
+GET /
+GET /guest/*
+GET /api/guest/deployments
+```
+
+Guest data is constructed as `GuestDeploymentResponse`, not serialized from `DeploymentRecord`. Its JSON contract is exactly:
+
+```text
+app
+url
+status
+```
+
+There are no guest mutation, logs, history, repository, image, container, port, or health-configuration routes.
+
+### Public Admin Plane
+
+Cloudflare Access and the Go backend both guard:
+
+```text
+/admin
+/admin/*
+/api/admin
+/api/admin/*
+```
+
+The backend accepts authority only from `Cf-Access-Jwt-Assertion` after cryptographic verification. A plain identity header, malformed token, wrong signature, wrong issuer, wrong audience, expired token, premature token, missing email, or non-matching email is rejected. Route-prefix protection also covers future admin subroutes before they reach the router.
+
+### Emergency Management Plane
 
 Private:
 
@@ -350,21 +400,21 @@ Private:
 127.0.0.1:9000
 ```
 
-Remote access requires SSH tunneling.
+Remote access requires SSH key authentication and port forwarding. This listener retains the original full-management routes and remains available if Cloudflare Access, the tunnel, or the public listener is unavailable.
+
+### GitHub Webhook Plane
+
+The dedicated webhook hostname reaches only:
+
+```text
+POST /webhooks/github
+```
+
+The handler requires `X-Hub-Signature-256` to match an HMAC-SHA256 computed with the root-owned environment secret. Signed `ping` events return success; signed pushes to `main` are matched to an existing deployment before a zero-downtime redeploy is queued.
 
 ### Application Plane
 
-Public:
-
-```text
-*.reactorlab.dev
-```
-
-Traffic enters through Cloudflare Tunnel and Caddy.
-
-### Docker Plane
-
-Private:
+Public application hostnames under `*.reactorlab.dev` enter through Cloudflare Tunnel and Caddy. Their Docker ports remain private:
 
 ```text
 127.0.0.1:8081-8999
@@ -385,7 +435,31 @@ Content-Security-Policy
 Cache-Control
 ```
 
-Cross-origin browser requests using state-changing methods are rejected except for the authenticated GitHub webhook endpoint.
+Cross-origin browser requests using state-changing methods are rejected. The webhook endpoint bypasses browser-origin checks only on the private listener because HMAC authentication is its trust mechanism; it is not registered on the public listener.
+
+## Access JWT Validation
+
+Access configuration is loaded only from:
+
+```text
+MINIDEPLOY_ACCESS_TEAM_DOMAIN
+MINIDEPLOY_ACCESS_AUDIENCE
+MINIDEPLOY_ACCESS_ADMIN_EMAIL
+```
+
+The configured team origin supplies the OIDC issuer and signing-key endpoint. The audience binds assertions to the MiniDeploy Access application. The normalized email claim must exactly match the configured administrator. If any setting is absent or invalid, public Admin requests fail closed.
+
+## Secret and Configuration Storage
+
+systemd loads runtime configuration from the root-owned `/etc/minideploy.env` file. It contains the three Access settings above and:
+
+```text
+MINIDEPLOY_GITHUB_WEBHOOK_SECRET
+```
+
+The environment file and any backup containing secret material must remain owned by `root:root` with mode `0600`. Values are never stored in the repository, frontend bundle, generated Caddy routes, deployment metadata, or documentation.
+
+Access JWTs and Cloudflare session cookies are request credentials. MiniDeploy validates the assertion in memory and does not persist either credential.
 
 ## systemd Hardening
 
@@ -409,10 +483,34 @@ RestrictAddressFamilies
 
 ## Trust Model
 
-MiniDeploy is designed for trusted repositories owned or reviewed by the server operator.
+```text
+Public visitor
+-> landing page
+-> read-only Guest Mode
+-> sanitized guest API only
 
-It does not currently isolate untrusted users or untrusted Dockerfiles.
+Cloudflare Access authenticated administrator
++ exact email
++ biometric MFA
++ valid origin-verified Access JWT
+-> full public Admin dashboard/API
 
-A malicious Docker build could compromise the server because Docker access is effectively privileged.
+SSH key holder
+-> localhost:9000
+-> emergency private full-management plane
 
-Multi-tenant sandboxing is outside the v1 scope.
+GitHub
++ valid webhook HMAC
+-> webhook endpoint only
+```
+
+These classes are intentionally non-interchangeable:
+
+- UI controls do not grant authority.
+- Guest and legacy paths are not aliases for Admin paths.
+- Plain identity headers are ignored.
+- Access tokens for another issuer, audience, identity, or validity window are rejected.
+- Browser-origin checks remain in force for state-changing Admin requests.
+- Webhook HMAC authentication grants access only to the webhook handler.
+
+MiniDeploy is designed for repositories owned or reviewed by the server operator. It does not isolate untrusted users or Dockerfiles; Docker builds are effectively privileged, so multi-tenant sandboxing remains outside the v1 scope.

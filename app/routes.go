@@ -119,11 +119,28 @@ func publicRoutes(
 		guestDeploymentsHandler,
 	)
 
+	mux.HandleFunc(
+		"GET /guest",
+		func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(
+				w,
+				r,
+				"/guest/",
+				http.StatusTemporaryRedirect,
+			)
+		},
+	)
+
+	mux.HandleFunc(
+		"GET /guest/",
+		publicDashboardHandler,
+	)
+
 	registerPublicAdminRoutes(mux)
 
 	mux.HandleFunc(
 		"GET /",
-		dashboardHandler,
+		publicRootHandler,
 	)
 
 	return protectPublicAdminRoutes(validator, mux)

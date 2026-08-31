@@ -6,6 +6,7 @@
   background: #090b0e;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  color-scheme: dark;
 }
 
 * {
@@ -20,6 +21,11 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+}
+
+::selection {
+  background: rgba(94, 224, 138, 0.24);
+  color: #fff;
 }
 
 button,

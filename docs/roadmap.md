@@ -32,6 +32,8 @@
 - [x] Publish applications through `*.reactorlab.dev`
 - [x] Configure automatic HTTPS
 - [x] Restrict application ports to loopback
+- [x] Publish `minideploy.reactorlab.dev`
+- [x] Separate public-origin traffic onto loopback port 9003
 
 ### Reliability
 
@@ -53,7 +55,7 @@
 - [x] HMAC-SHA256 webhook validation
 - [x] Automatic redeployment on pushes to `main`
 - [x] Cloudflare webhook ingress
-- [x] Keep management API private
+- [x] Keep legacy management routes off the public listener
 
 ### Observability
 
@@ -76,6 +78,9 @@
 - [x] Redeploy
 - [x] Rollback
 - [x] Delete
+- [x] Public landing page
+- [x] Read-only Guest Mode
+- [x] Cloudflare Access Admin Mode
 
 ### Security
 
@@ -88,6 +93,13 @@
 - [x] UFW firewall
 - [x] Loopback-only Docker application bindings
 - [x] Verify direct LAN access to app ports is blocked
+- [x] Preserve SSH emergency management on loopback port 9000
+- [x] Protect all public Admin paths with Cloudflare Access
+- [x] Require biometric MFA for the Admin Access policy
+- [x] Verify Access JWT signature, issuer, audience, validity, and exact email
+- [x] Reject plain identity-header spoofing
+- [x] Serialize guest data through a dedicated allowlisted response type
+- [x] Keep guest mutations, logs, and history unavailable
 
 ### Testing
 
@@ -101,10 +113,15 @@
 - [x] Failed-build recovery test
 - [x] Reboot persistence test
 - [x] Public routing test
+- [x] Guest serialization and route-isolation tests
+- [x] Public Admin authorization matrix
+- [x] Route-manipulation regression tests
+- [x] React routing and Guest Mode tests
 
 ## v1 Final Polish
 
-- [ ] Clean stale local backup files
+- [x] Audit and clean stale repository-local backup files
+- [x] Update final architecture and security documentation
 - [ ] Improve deployment naming readability
 - [ ] Review Docker image cleanup strategy
 - [ ] Add screenshots to README

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -196,6 +198,45 @@ func TestPublicRoutesDoNotExposeLegacyManagement(
 
 				t.Fatalf(
 					"legacy route returned %d; want 404 or 405",
+					recorder.Code,
+				)
+			}
+		})
+	}
+}
+
+func TestGuestNamespaceDoesNotExposeManagement(
+	t *testing.T,
+) {
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/guest/deployments/example/restart"},
+		{http.MethodGet, "/api/guest/deployments/example/logs"},
+		{http.MethodGet, "/api/guest/deployments/example/deploy-logs"},
+		{http.MethodGet, "/api/guest/deployments/example/history"},
+		{http.MethodDelete, "/api/guest/deployments/example"},
+	}
+
+	handler := publicRoutes(stubAccessValidator{})
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			req := httptest.NewRequest(
+				tt.method,
+				"https://minideploy.reactorlab.dev"+tt.path,
+				nil,
+			)
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, req)
+
+			if recorder.Code != http.StatusNotFound &&
+				recorder.Code != http.StatusMethodNotAllowed {
+
+				t.Fatalf(
+					"guest management route returned %d; want 404 or 405",
 					recorder.Code,
 				)
 			}
@@ -411,6 +452,115 @@ func TestGuestStoreFailureReturnsGenericError(
 			"guest error leaked internal details: %s",
 			recorder.Body.String(),
 		)
+	}
+}
+
+func TestFrontendRuntimeModesAndDirectSPARoutes(
+	t *testing.T,
+) {
+	restoreIndex := replaceFrontendIndexForTest(t)
+	defer restoreIndex()
+
+	publicHandler := publicRoutes(
+		stubAccessValidator{
+			identity: AccessIdentity{
+				Email: testAdminEmail,
+			},
+		},
+	)
+
+	tests := []struct {
+		name       string
+		handler    http.Handler
+		path       string
+		token      string
+		wantMode   string
+		wantStatus int
+	}{
+		{
+			name:       "public root",
+			handler:    publicHandler,
+			path:       "/",
+			wantMode:   frontendModePublic,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "direct guest route",
+			handler:    publicHandler,
+			path:       "/guest/applications",
+			wantMode:   frontendModePublic,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "direct protected admin route",
+			handler:    publicHandler,
+			path:       "/admin/deployments",
+			token:      "valid-test-token",
+			wantMode:   frontendModePublic,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "private root",
+			handler:    routes(),
+			path:       "/",
+			wantMode:   frontendModePrivateAdmin,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"http://minideploy.test"+tt.path,
+				nil,
+			)
+			if tt.token != "" {
+				req.Header.Set(accessJWTHeader, tt.token)
+			}
+
+			recorder := httptest.NewRecorder()
+			tt.handler.ServeHTTP(recorder, req)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf(
+					"status = %d; want %d; body=%s",
+					recorder.Code,
+					tt.wantStatus,
+					recorder.Body.String(),
+				)
+			}
+
+			wantMeta := `name="minideploy-mode" content="` +
+				tt.wantMode + `"`
+			if !strings.Contains(recorder.Body.String(), wantMeta) {
+				t.Fatalf(
+					"response missing runtime mode %q: %s",
+					tt.wantMode,
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+}
+
+func replaceFrontendIndexForTest(t *testing.T) func() {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "index.html")
+	index := `<!doctype html><html><head>` +
+		`<meta name="minideploy-mode" content="public">` +
+		`</head><body><div id="root"></div></body></html>`
+
+	if err := os.WriteFile(path, []byte(index), 0600); err != nil {
+		t.Fatalf("write frontend fixture: %v", err)
+	}
+
+	previous := frontendIndexPath
+	frontendIndexPath = path
+
+	return func() {
+		frontendIndexPath = previous
 	}
 }
 

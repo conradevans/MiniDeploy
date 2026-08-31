@@ -6,6 +6,11 @@ import (
 	"net/http"
 )
 
+const (
+	frontendModePrivateAdmin = "private-admin"
+	frontendModePublic       = "public"
+)
+
 func guestDeploymentsHandler(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -103,9 +108,17 @@ func publicDashboardHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	http.ServeFile(
-		w,
-		r,
-		"/srv/minideploy/frontend/dist/index.html",
-	)
+	serveFrontendIndex(w, frontendModePublic)
+}
+
+func publicRootHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	publicDashboardHandler(w, r)
 }

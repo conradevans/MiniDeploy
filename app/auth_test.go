@@ -327,8 +327,98 @@ func TestEveryPublicAdminRouteRequiresAccess(
 	}
 }
 
+func TestPublicAdminRouteManipulationFailsClosed(
+	t *testing.T,
+) {
+	handler := publicRoutes(stubAccessValidator{})
+
+	tests := []struct {
+		name       string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "encoded separator",
+			path:       "/api%2Fadmin/session",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "repeated separator",
+			path:       "/api/admin//session",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "admin dot segment",
+			path:       "/admin/%2e%2e/guest/",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "nearby unprotected prefix",
+			path:       "/api/adminish/session",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(
+				http.MethodGet,
+				"https://minideploy.reactorlab.dev"+tt.path,
+				nil,
+			)
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, req)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf(
+					"status = %d; want %d; body=%s",
+					recorder.Code,
+					tt.wantStatus,
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"https://minideploy.reactorlab.dev/guest/../api/admin/session",
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusTemporaryRedirect ||
+		recorder.Header().Get("Location") != "/api/admin/session" {
+
+		t.Fatalf(
+			"unclean path status = %d, location = %q; want 307 to protected route",
+			recorder.Code,
+			recorder.Header().Get("Location"),
+		)
+	}
+
+	followed := httptest.NewRequest(
+		http.MethodGet,
+		"https://minideploy.reactorlab.dev"+
+			recorder.Header().Get("Location"),
+		nil,
+	)
+	followedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(followedRecorder, followed)
+
+	if followedRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf(
+			"redirected route status = %d; want %d",
+			followedRecorder.Code,
+			http.StatusUnauthorized,
+		)
+	}
+}
+
 func TestMissingAccessConfigurationFailsClosed(t *testing.T) {
-	_, err := newCloudflareAccessValidator(AccessConfig{})
+	validator, err := newCloudflareAccessValidator(AccessConfig{})
 	if err == nil {
 		t.Fatal("expected missing Access configuration to fail")
 	}
@@ -341,7 +431,7 @@ func TestMissingAccessConfigurationFailsClosed(t *testing.T) {
 	req.Header.Set(accessJWTHeader, "forged")
 	recorder := httptest.NewRecorder()
 
-	publicRoutes(nil).ServeHTTP(recorder, req)
+	publicRoutes(validator).ServeHTTP(recorder, req)
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf(

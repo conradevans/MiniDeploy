@@ -107,7 +107,7 @@ func accessConfigFromEnvironment() AccessConfig {
 
 func newCloudflareAccessValidator(
 	config AccessConfig,
-) (*CloudflareAccessValidator, error) {
+) (AccessTokenValidator, error) {
 	teamDomain, err := normalizedAccessTeamDomain(
 		config.TeamDomain,
 	)

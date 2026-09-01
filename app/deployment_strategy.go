@@ -45,6 +45,7 @@ type deploymentBuildPlan struct {
 	HealthPath          string
 	GeneratedDockerfile string
 	Services            []deploymentServiceBuildPlan
+	ReactorLabMigration bool
 }
 
 type deploymentStrategyDetector interface {
@@ -280,11 +281,13 @@ func (nodeExpressStrategyDetector) Detect(
 		requested.HealthPath,
 	)
 
-	return nodeExpressBuildPlan(
+	plan := nodeExpressBuildPlan(
 		installMode,
 		containerPort,
 		healthPath,
-	), true, nil
+	)
+	plan.ReactorLabMigration = strings.TrimSpace(manifest.Scripts["reactorlab:migrate"]) != ""
+	return plan, true, nil
 }
 
 // repositoryHasSupportedNodeEntrypoint deliberately accepts only the
@@ -655,11 +658,13 @@ func deploymentStrategyForRecord(
 			)
 		}
 
-		return nodeExpressBuildPlan(
+		plan := nodeExpressBuildPlan(
 			record.PackageInstallMode,
 			record.ContainerPort,
 			record.HealthPath,
-		), nil
+		)
+		plan.ReactorLabMigration = strings.TrimSpace(manifest.Scripts["reactorlab:migrate"]) != ""
+		return plan, nil
 
 	default:
 		return deploymentBuildPlan{}, fmt.Errorf(

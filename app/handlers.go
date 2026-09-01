@@ -495,11 +495,21 @@ func logsHandler(
 		)
 		return
 	}
+	runtime, err := resolveDatabaseRuntime(record, environment)
+	if err != nil {
+		log.Printf("refusing runtime logs for %s because managed secret redaction is unavailable: %v", record.App, err)
+		http.Error(
+			w,
+			"failed to retrieve logs",
+			http.StatusInternalServerError,
+		)
+		return
+	}
 
 	containerName, output, err := deploymentRuntimeLogs(
 		record,
 		200,
-		environment,
+		runtime.Redaction,
 	)
 
 	if err != nil {
@@ -554,7 +564,26 @@ func deploymentLogsHandler(
 		return
 	}
 
+	environment, err := runtimeEnvironmentStore.Load(record.App)
+	if err != nil {
+		http.Error(w, "failed to retrieve deployment logs", http.StatusInternalServerError)
+		return
+	}
+	if err := verifyRuntimeEnvironmentMetadata(record, environment); err != nil {
+		http.Error(w, "failed to retrieve deployment logs", http.StatusInternalServerError)
+		return
+	}
+	runtime, err := resolveDatabaseRuntime(record, environment)
+	if err != nil {
+		log.Printf("refusing deployment logs for %s because managed secret redaction is unavailable: %v", record.App, err)
+		http.Error(w, "failed to retrieve deployment logs", http.StatusInternalServerError)
+		return
+	}
 	output, err := readDeploymentLog(record.App)
+	if err == nil {
+		output = redactRuntimeEnvironmentValues(output, runtime.Redaction)
+	}
+
 	if err != nil {
 		log.Printf(
 			"failed to retrieve deployment logs for %s: %v",
@@ -815,6 +844,15 @@ func deleteDeploymentHandler(
 			)
 		}
 	}
+	if err := detachMiniBaseAttachment(record); err != nil {
+		log.Printf("application resources removed but MiniBase attachment cleanup failed for %s: %v", record.App, err)
+		http.Error(
+			w,
+			"application resources removed but database detachment failed; retry deletion",
+			http.StatusBadGateway,
+		)
+		return
+	}
 
 	if err := runtimeEnvironmentStore.Delete(
 		record.App,
@@ -908,6 +946,7 @@ func deploymentResponse(
 		Strategy:             record.Strategy,
 		PackageManager:       record.PackageManager,
 		EnvironmentVariables: record.EnvironmentVariables,
+		DatabaseAttachments:  cloneDatabaseAttachments(record.DatabaseAttachments),
 		Services:             deploymentServiceResponses(record),
 		Status:               deploymentProjectStatus(record),
 	}

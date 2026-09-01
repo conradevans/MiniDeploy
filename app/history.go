@@ -10,53 +10,56 @@ import (
 )
 
 type DeploymentVersion struct {
-	App                string                    `json:"app"`
-	RepoURL            string                    `json:"repoUrl"`
-	Container          string                    `json:"container"`
-	Image              string                    `json:"image"`
-	Port               int                       `json:"port"`
-	ContainerPort      int                       `json:"containerPort"`
-	HealthPath         string                    `json:"healthPath"`
-	Strategy           string                    `json:"strategy,omitempty"`
-	PackageManager     string                    `json:"packageManager,omitempty"`
-	PackageInstallMode string                    `json:"packageInstallMode,omitempty"`
-	Services           []DeploymentServiceRecord `json:"services,omitempty"`
-	DeployedAt         time.Time                 `json:"deployedAt"`
+	App                 string                    `json:"app"`
+	RepoURL             string                    `json:"repoUrl"`
+	Container           string                    `json:"container"`
+	Image               string                    `json:"image"`
+	Port                int                       `json:"port"`
+	ContainerPort       int                       `json:"containerPort"`
+	HealthPath          string                    `json:"healthPath"`
+	Strategy            string                    `json:"strategy,omitempty"`
+	PackageManager      string                    `json:"packageManager,omitempty"`
+	PackageInstallMode  string                    `json:"packageInstallMode,omitempty"`
+	Services            []DeploymentServiceRecord `json:"services,omitempty"`
+	ReactorLabMigration bool                      `json:"reactorlabMigration,omitempty"`
+	DeployedAt          time.Time                 `json:"deployedAt"`
 }
 
 func deploymentVersion(record DeploymentRecord) DeploymentVersion {
 	record = normalizeDeploymentRecord(record)
 
 	return DeploymentVersion{
-		App:                record.App,
-		RepoURL:            record.RepoURL,
-		Container:          record.Container,
-		Image:              record.Image,
-		Port:               record.Port,
-		ContainerPort:      record.ContainerPort,
-		HealthPath:         record.HealthPath,
-		Strategy:           record.Strategy,
-		PackageManager:     record.PackageManager,
-		PackageInstallMode: record.PackageInstallMode,
-		Services:           cloneDeploymentServices(record.Services),
-		DeployedAt:         time.Now().UTC(),
+		App:                 record.App,
+		RepoURL:             record.RepoURL,
+		Container:           record.Container,
+		Image:               record.Image,
+		Port:                record.Port,
+		ContainerPort:       record.ContainerPort,
+		HealthPath:          record.HealthPath,
+		Strategy:            record.Strategy,
+		PackageManager:      record.PackageManager,
+		PackageInstallMode:  record.PackageInstallMode,
+		Services:            cloneDeploymentServices(record.Services),
+		ReactorLabMigration: record.ReactorLabMigration,
+		DeployedAt:          time.Now().UTC(),
 	}
 }
 
 func (v DeploymentVersion) Record() DeploymentRecord {
 	return normalizeDeploymentRecord(
 		DeploymentRecord{
-			App:                v.App,
-			RepoURL:            v.RepoURL,
-			Container:          v.Container,
-			Image:              v.Image,
-			Port:               v.Port,
-			ContainerPort:      v.ContainerPort,
-			HealthPath:         v.HealthPath,
-			Strategy:           v.Strategy,
-			PackageManager:     v.PackageManager,
-			PackageInstallMode: v.PackageInstallMode,
-			Services:           cloneDeploymentServices(v.Services),
+			App:                 v.App,
+			RepoURL:             v.RepoURL,
+			Container:           v.Container,
+			Image:               v.Image,
+			Port:                v.Port,
+			ContainerPort:       v.ContainerPort,
+			HealthPath:          v.HealthPath,
+			Strategy:            v.Strategy,
+			PackageManager:      v.PackageManager,
+			PackageInstallMode:  v.PackageInstallMode,
+			Services:            cloneDeploymentServices(v.Services),
+			ReactorLabMigration: v.ReactorLabMigration,
 		},
 	)
 }

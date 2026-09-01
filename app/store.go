@@ -11,35 +11,45 @@ import (
 var ErrDeploymentNotFound = errors.New("deployment not found")
 
 type DeploymentRecord struct {
-	App                  string                    `json:"app"`
-	RepoURL              string                    `json:"repoUrl"`
-	Container            string                    `json:"container"`
-	Image                string                    `json:"image"`
-	Port                 int                       `json:"port"`
-	ContainerPort        int                       `json:"containerPort"`
-	HealthPath           string                    `json:"healthPath"`
-	Strategy             string                    `json:"strategy,omitempty"`
-	PackageManager       string                    `json:"packageManager,omitempty"`
-	PackageInstallMode   string                    `json:"packageInstallMode,omitempty"`
-	EnvironmentVariables []string                  `json:"environmentVariables,omitempty"`
-	Services             []DeploymentServiceRecord `json:"services,omitempty"`
-	Network              string                    `json:"network,omitempty"`
+	App                  string                     `json:"app"`
+	RepoURL              string                     `json:"repoUrl"`
+	Container            string                     `json:"container"`
+	Image                string                     `json:"image"`
+	Port                 int                        `json:"port"`
+	ContainerPort        int                        `json:"containerPort"`
+	HealthPath           string                     `json:"healthPath"`
+	Strategy             string                     `json:"strategy,omitempty"`
+	PackageManager       string                     `json:"packageManager,omitempty"`
+	PackageInstallMode   string                     `json:"packageInstallMode,omitempty"`
+	EnvironmentVariables []string                   `json:"environmentVariables,omitempty"`
+	Services             []DeploymentServiceRecord  `json:"services,omitempty"`
+	Network              string                     `json:"network,omitempty"`
+	ReactorLabMigration  bool                       `json:"reactorlabMigration,omitempty"`
+	DatabaseAttachments  []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
+}
+
+type DatabaseAttachmentRecord struct {
+	AttachmentID string `json:"attachmentId"`
+	DatabaseID   string `json:"databaseId"`
+	DisplayName  string `json:"displayName"`
+	BindingName  string `json:"bindingName"`
 }
 
 // DeploymentServiceRecord contains only non-secret lifecycle metadata for one
 // service in a multi-service project. Legacy single-service deployments keep
 // using the established top-level fields and have no Services entries.
 type DeploymentServiceRecord struct {
-	Name               string `json:"name"`
-	Path               string `json:"path"`
-	Strategy           string `json:"strategy"`
-	Container          string `json:"container"`
-	Image              string `json:"image"`
-	Port               int    `json:"port"`
-	ContainerPort      int    `json:"containerPort"`
-	HealthPath         string `json:"healthPath"`
-	PackageManager     string `json:"packageManager,omitempty"`
-	PackageInstallMode string `json:"packageInstallMode,omitempty"`
+	Name                string `json:"name"`
+	Path                string `json:"path"`
+	Strategy            string `json:"strategy"`
+	Container           string `json:"container"`
+	Image               string `json:"image"`
+	Port                int    `json:"port"`
+	ContainerPort       int    `json:"containerPort"`
+	HealthPath          string `json:"healthPath"`
+	PackageManager      string `json:"packageManager,omitempty"`
+	PackageInstallMode  string `json:"packageInstallMode,omitempty"`
+	ReactorLabMigration bool   `json:"reactorlabMigration,omitempty"`
 }
 
 type DeploymentStore interface {

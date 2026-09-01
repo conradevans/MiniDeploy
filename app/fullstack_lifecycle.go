@@ -69,15 +69,16 @@ func newFullstackReleaseRecord(
 		}
 
 		record.Services = append(record.Services, DeploymentServiceRecord{
-			Name:               name,
-			Path:               name,
-			Strategy:           servicePlan.Build.Strategy,
-			Container:          container,
-			Image:              image,
-			ContainerPort:      servicePlan.Build.ContainerPort,
-			HealthPath:         servicePlan.Build.HealthPath,
-			PackageManager:     servicePlan.Build.PackageManager,
-			PackageInstallMode: servicePlan.Build.PackageInstallMode,
+			Name:                name,
+			Path:                name,
+			Strategy:            servicePlan.Build.Strategy,
+			Container:           container,
+			Image:               image,
+			ContainerPort:       servicePlan.Build.ContainerPort,
+			HealthPath:          servicePlan.Build.HealthPath,
+			PackageManager:      servicePlan.Build.PackageManager,
+			PackageInstallMode:  servicePlan.Build.PackageInstallMode,
+			ReactorLabMigration: servicePlan.Build.ReactorLabMigration,
 		})
 	}
 
@@ -140,6 +141,18 @@ func startAndVerifyFullstackRelease(
 	record DeploymentRecord,
 	environment map[string]string,
 ) (DeploymentRecord, error) {
+	runtime, err := resolveDatabaseRuntime(record, environment)
+	if err != nil {
+		return record, err
+	}
+	backend, ok := deploymentServiceByName(record, fullstackBackendService)
+	if !ok {
+		return record, fmt.Errorf("missing backend service")
+	}
+	if err := runReactorLabMigration(record.App, backend.Image, backend.PackageManager, backend.ReactorLabMigration, runtime); err != nil {
+		return record, err
+	}
+
 	if err := createFullstackNetwork(record.App, record.Network); err != nil {
 		return record, err
 	}
@@ -167,7 +180,7 @@ func startAndVerifyFullstackRelease(
 
 		serviceEnvironment := fullstackServiceRuntimeEnvironment(
 			name,
-			environment,
+			runtime.Environment,
 		)
 		if name == fullstackBackendService {
 			if len(environment) > 0 {
@@ -184,16 +197,23 @@ func startAndVerifyFullstackRelease(
 			name,
 			port,
 		)
-		if err := startManagedProjectServiceContainer(
+		options := managedContainerOptions{
+			Network: record.Network,
+			Service: name,
+			App:     record.App,
+		}
+		if name == fullstackBackendService {
+			options.DataNetwork = runtime.DataNetwork
+		}
+		if err := startManagedDeploymentContainerWithOptions(
 			record.App,
-			name,
 			service.Container,
 			service.Image,
 			service.Port,
 			service.ContainerPort,
 			service.Strategy,
 			serviceEnvironment,
-			record.Network,
+			options,
 		); err != nil {
 			return record, fmt.Errorf(
 				"start %s service: %w",
@@ -213,7 +233,7 @@ func startAndVerifyFullstackRelease(
 			logs, _ := containerLogs(
 				service.Container,
 				100,
-				environment,
+				runtime.Redaction,
 			)
 			return record, fmt.Errorf(
 				"%s failed startup verification: %w; logs: %s",
@@ -235,7 +255,7 @@ func startAndVerifyFullstackRelease(
 			logs, _ := containerLogs(
 				service.Container,
 				100,
-				environment,
+				runtime.Redaction,
 			)
 			return record, fmt.Errorf(
 				"%s failed HTTP health check: %w; logs: %s",
@@ -346,6 +366,9 @@ func safeRedeployFullstackLocked(
 	if err != nil {
 		return DeploymentRecord{}, fmt.Errorf("prepare runtime environment: %w", err)
 	}
+	if err := validateManagedDatabaseEnvironment(old, environmentChange.effective); err != nil {
+		return DeploymentRecord{}, err
+	}
 	if environmentReplacement == nil {
 		if err := verifyRuntimeEnvironmentMetadata(
 			old,
@@ -406,6 +429,7 @@ func safeRedeployFullstackLocked(
 	if err := buildFullstackRelease(candidate, plan); err != nil {
 		return DeploymentRecord{}, err
 	}
+	candidate.DatabaseAttachments = cloneDatabaseAttachments(old.DatabaseAttachments)
 	candidate, err = startAndVerifyFullstackRelease(
 		candidate,
 		environmentChange.effective,
@@ -531,6 +555,7 @@ func rollbackFullstackLocked(
 	candidate.RepoURL = current.RepoURL
 	candidate.Network = network
 	candidate.EnvironmentVariables = runtimeEnvironmentNames(environment)
+	candidate.DatabaseAttachments = cloneDatabaseAttachments(current.DatabaseAttachments)
 	for index := range candidate.Services {
 		service := &candidate.Services[index]
 		service.Container, err = fullstackServiceContainerName(

@@ -116,6 +116,54 @@ frontend. Runtime environment values are injected into the backend only.
 Redeploy, webhook, restart, history, rollback, and deletion operate on the pair
 as one project; legacy single-service records remain unchanged.
 
+### MiniBase Database Integration
+
+Admin Mode can create a new MiniBase PostgreSQL database or attach an existing
+ready, unattached database to a supported application. Phase 6 deliberately
+supports one `primary` binding for zero-config Node/Express deployments and the
+backend of `fullstack-vite-node` projects. Static Vite deployments are rejected;
+arbitrary Dockerfile database injection remains deferred because MiniDeploy
+cannot safely infer which process should receive a credential.
+
+MiniDeploy persists only the attachment ID, database ID, display name, and
+binding name. It obtains structured connection material at candidate start from
+MiniBase's token-authenticated loopback integration API, constructs
+`DATABASE_URL` in memory, and passes it through a temporary mode-`0600` Docker
+env-file. `DATABASE_URL` is managed while an attachment exists, so a conflicting
+user-defined value is rejected. The value is never sent to the browser, stored
+in deployment/history JSON, added to a frontend build, or written to the normal
+runtime environment file.
+
+The backend retains its normal application/release network and also joins the
+existing internal `reactorlab-data` bridge before startup. The frontend never
+joins that network and never receives `DATABASE_URL`. MiniDeploy validates the
+network but never creates, alters, or removes it.
+
+Attachments are application-level state: ordinary and webhook redeploys and
+rollbacks retain the same database. Application rollback does not roll database
+contents backward; database restore remains an explicit MiniBase operation.
+Deleting a MiniDeploy deployment removes only the MiniBase attachment
+relationship. The PostgreSQL database, role, credential, and backups survive.
+
+Node applications may declare an optional package script:
+
+```json
+{"scripts":{"reactorlab:migrate":"..."}}
+```
+
+For currently supported npm runtimes, MiniDeploy runs
+`npm run reactorlab:migrate` in a temporary backend-image container on
+`reactorlab-data` before starting/promoting a database-enabled candidate. No
+script means migrations are skipped. Migration failure rejects the candidate,
+keeps the current release and attachment, and returns a redacted error. The
+application remains responsible for schema design and forward-compatible
+migrations.
+
+MiniBase must be available for database creation/attachment, attached-app
+redeploy/rollback, and managed-secret log redaction. An existing running
+application keeps serving if the MiniBase control plane is temporarily
+unavailable.
+
 ### GitHub Auto-Deploy
 
 Signed GitHub push webhooks can trigger automatic redeployment of matching applications on pushes to `main`. Webhook signatures are validated with HMAC-SHA256.
@@ -162,6 +210,7 @@ Admin Mode supports:
 - runtime logs
 - deployment logs
 - deployment history
+- creating or attaching one primary MiniBase database for supported backends
 - restart
 - redeploy
 - rollback
@@ -247,6 +296,9 @@ GET    /admin/*                       Access-protected Admin SPA
 GET    /api/admin/session             authenticated identity
 POST   /api/admin/deploy
 GET    /api/admin/deployments
+GET    /api/admin/minibase/databases
+GET    /api/admin/deployments/{app}/database
+POST   /api/admin/deployments/{app}/database
 GET    /api/admin/deployments/{app}/logs
 GET    /api/admin/deployments/{app}/deploy-logs
 GET    /api/admin/deployments/{app}/history
@@ -262,6 +314,9 @@ Emergency private listener (`127.0.0.1:9000`):
 GET    /health
 POST   /deploy
 GET    /deployments
+GET    /minibase/databases
+GET    /deployments/{app}/database
+POST   /deployments/{app}/database
 GET    /deployments/{app}/logs
 GET    /deployments/{app}/deploy-logs
 GET    /deployments/{app}/history
@@ -330,6 +385,12 @@ Security measures include:
   internal paths passed into generated application builds
 - application runtime values isolated from metadata/history, injected through
   temporary env-files, and redacted from MiniDeploy-returned logs
+- a fixed loopback-only MiniBase client with bounded responses and request
+  timeouts
+- owner-only integration-token loading from
+  `/srv/minibase/secrets/minideploy-integration-token`; MiniDeploy intentionally
+  reads no MiniBase database-password file
+- backend-only managed database injection and fail-closed attached-app logging
 - Caddy-controlled public ingress
 - HTTP security headers
 - cross-origin protections

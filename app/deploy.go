@@ -306,16 +306,17 @@ func deployRepository(
 	}
 
 	record := DeploymentRecord{
-		App:                appName,
-		RepoURL:            repoURL,
-		Container:          containerName,
-		Image:              imageName,
-		Port:               port,
-		ContainerPort:      containerPort,
-		HealthPath:         healthPath,
-		Strategy:           plan.Strategy,
-		PackageManager:     plan.PackageManager,
-		PackageInstallMode: plan.PackageInstallMode,
+		App:                 appName,
+		RepoURL:             repoURL,
+		Container:           containerName,
+		Image:               imageName,
+		Port:                port,
+		ContainerPort:       containerPort,
+		HealthPath:          healthPath,
+		Strategy:            plan.Strategy,
+		PackageManager:      plan.PackageManager,
+		PackageInstallMode:  plan.PackageInstallMode,
+		ReactorLabMigration: plan.ReactorLabMigration,
 		EnvironmentVariables: runtimeEnvironmentNames(
 			environmentChange.effective,
 		),
@@ -383,6 +384,9 @@ func safeRedeploy(
 			"prepare runtime environment: %w",
 			err,
 		)
+	}
+	if err := validateManagedDatabaseEnvironment(old, environmentChange.effective); err != nil {
+		return DeploymentRecord{}, err
 	}
 
 	if environmentReplacement == nil {
@@ -533,6 +537,28 @@ func safeRedeploy(
 		newImage,
 	)
 
+	runtimeRecord := old
+	runtimeRecord.Strategy = plan.Strategy
+	runtimeRecord.ContainerPort = plan.ContainerPort
+	runtimeRecord.HealthPath = plan.HealthPath
+	runtimeRecord.PackageManager = plan.PackageManager
+	runtimeRecord.ReactorLabMigration = plan.ReactorLabMigration
+	runtime, err := resolveDatabaseRuntime(runtimeRecord, environmentChange.effective)
+	if err != nil {
+		_, _ = runCommand("", "docker", "image", "rm", newImage)
+		return DeploymentRecord{}, err
+	}
+	if err := runReactorLabMigration(
+		old.App,
+		newImage,
+		plan.PackageManager,
+		plan.ReactorLabMigration,
+		runtime,
+	); err != nil {
+		_, _ = runCommand("", "docker", "image", "rm", newImage)
+		return DeploymentRecord{}, err
+	}
+
 	candidatePort, err := findAvailablePort(
 		minDeployPort,
 		maxDeployPort,
@@ -566,14 +592,15 @@ func safeRedeploy(
 		)
 	}
 
-	if err := startManagedDeploymentContainer(
+	if err := startManagedDeploymentContainerWithOptions(
 		old.App,
 		candidateContainer,
 		newImage,
 		candidatePort,
 		plan.ContainerPort,
 		plan.Strategy,
-		environmentChange.effective,
+		runtime.Environment,
+		managedContainerOptions{DataNetwork: runtime.DataNetwork},
 	); err != nil {
 		_, _ = runCommand(
 			"",
@@ -614,7 +641,7 @@ func safeRedeploy(
 		logs, _ := containerLogs(
 			candidateContainer,
 			100,
-			environmentChange.effective,
+			runtime.Redaction,
 		)
 		cleanupCandidate(true)
 
@@ -632,7 +659,7 @@ func safeRedeploy(
 		logs, _ := containerLogs(
 			candidateContainer,
 			100,
-			environmentChange.effective,
+			runtime.Redaction,
 		)
 		cleanupCandidate(true)
 
@@ -664,6 +691,7 @@ func safeRedeploy(
 	newRecord.Strategy = plan.Strategy
 	newRecord.PackageManager = plan.PackageManager
 	newRecord.PackageInstallMode = plan.PackageInstallMode
+	newRecord.ReactorLabMigration = plan.ReactorLabMigration
 	newRecord.EnvironmentVariables = runtimeEnvironmentNames(
 		environmentChange.effective,
 	)

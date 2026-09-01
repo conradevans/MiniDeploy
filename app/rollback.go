@@ -123,6 +123,7 @@ func rollbackDeployment(
 
 	previous := versions[0]
 	previousRecord := previous.RecordWithFallback(current)
+	previousRecord.DatabaseAttachments = cloneDatabaseAttachments(current.DatabaseAttachments)
 
 	deploymentEvent(
 		current.App,
@@ -141,6 +142,16 @@ func rollbackDeployment(
 			"previous Docker image is unavailable: %w",
 			err,
 		)
+	}
+	runtime, err := resolveDatabaseRuntime(previousRecord, environment)
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+	if err := runReactorLabMigration(
+		current.App, previousRecord.Image, previousRecord.PackageManager,
+		previousRecord.ReactorLabMigration, runtime,
+	); err != nil {
+		return DeploymentRecord{}, err
 	}
 
 	versionID := fmt.Sprintf(
@@ -185,14 +196,15 @@ func rollbackDeployment(
 		)
 	}
 
-	if err := startManagedDeploymentContainer(
+	if err := startManagedDeploymentContainerWithOptions(
 		current.App,
 		candidateName,
 		previousRecord.Image,
 		candidatePort,
 		previousRecord.ContainerPort,
 		previousRecord.Strategy,
-		environment,
+		runtime.Environment,
+		managedContainerOptions{DataNetwork: runtime.DataNetwork},
 	); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"start rollback candidate: %w",
@@ -216,7 +228,7 @@ func rollbackDeployment(
 		logs, _ := containerLogs(
 			candidateName,
 			100,
-			environment,
+			runtime.Redaction,
 		)
 
 		cleanupCandidate()
@@ -235,7 +247,7 @@ func rollbackDeployment(
 		logs, _ := containerLogs(
 			candidateName,
 			100,
-			environment,
+			runtime.Redaction,
 		)
 
 		cleanupCandidate()

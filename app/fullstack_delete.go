@@ -88,6 +88,10 @@ func deleteFullstackProject(record DeploymentRecord) error {
 			)
 		}
 	}
+	if err := detachMiniBaseAttachment(record); err != nil {
+		return fmt.Errorf("application resources removed but MiniBase attachment cleanup failed: %w", err)
+	}
+
 	if err := runtimeEnvironmentStore.Delete(record.App); err != nil {
 		return fmt.Errorf("remove runtime environment: %w", err)
 	}

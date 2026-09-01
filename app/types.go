@@ -39,7 +39,8 @@ type DeploymentResponse struct {
 	EnvironmentVariables []string                    `json:"environmentVariables,omitempty"`
 	Services             []DeploymentServiceResponse `json:"services,omitempty"`
 
-	Status string `json:"status"`
+	Status              string                     `json:"status"`
+	DatabaseAttachments []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
 }
 
 type DeploymentServiceResponse struct {

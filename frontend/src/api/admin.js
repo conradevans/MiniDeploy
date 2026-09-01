@@ -38,6 +38,24 @@ export function createAdminApi(mode, requester = request) {
       return requester(deploymentsPath)
     },
 
+    getMiniBaseDatabases() {
+      return requester(`${base}/minibase/databases`)
+    },
+
+    getDatabaseAttachment(app) {
+      return requester(deploymentPath(app, '/database'))
+    },
+
+    attachMiniBaseDatabase(app, input) {
+      return requester(deploymentPath(app, '/database'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(input),
+      })
+    },
+
     deployApplication({
       repoUrl,
       containerPort,

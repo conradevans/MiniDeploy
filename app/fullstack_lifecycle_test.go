@@ -11,12 +11,14 @@ import (
 )
 
 type fullstackCommandRecorder struct {
-	app          string
-	cloneCount   int
-	dockerRuns   [][]string
-	dockerEnv    map[string]string
-	removed      []string
-	networksMade []string
+	app             string
+	cloneCount      int
+	dockerRuns      [][]string
+	dockerCreates   [][]string
+	dockerEnv       map[string]string
+	removed         []string
+	networksMade    []string
+	networkConnects [][]string
 }
 
 func (r *fullstackCommandRecorder) run(
@@ -35,8 +37,12 @@ func (r *fullstackCommandRecorder) run(
 	}
 
 	switch args[0] {
-	case "run":
-		r.dockerRuns = append(r.dockerRuns, slices.Clone(args))
+	case "run", "create":
+		if args[0] == "run" {
+			r.dockerRuns = append(r.dockerRuns, slices.Clone(args))
+		} else {
+			r.dockerCreates = append(r.dockerCreates, slices.Clone(args))
+		}
 		service := ""
 		envFile := ""
 		for index, argument := range args {
@@ -58,6 +64,8 @@ func (r *fullstackCommandRecorder) run(
 			r.dockerEnv[service] = string(content)
 		}
 		return "container-id\n", nil
+	case "start":
+		return args[len(args)-1] + "\n", nil
 	case "logs":
 		return "application log\n", nil
 	case "restart":
@@ -88,7 +96,13 @@ func (r *fullstackCommandRecorder) run(
 			r.networksMade = append(r.networksMade, args[len(args)-1])
 			return args[len(args)-1] + "\n", nil
 		case "inspect":
+			if slices.Equal(args, []string{"network", "inspect", "-f", "{{.Driver}} {{.Internal}}", reactorLabDataNetwork}) {
+				return "bridge true\n", nil
+			}
 			return "true|" + r.app + "\n", nil
+		case "connect":
+			r.networkConnects = append(r.networkConnects, slices.Clone(args))
+			return "", nil
 		case "rm":
 			r.removed = append(r.removed, args[len(args)-1])
 			return "", nil

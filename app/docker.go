@@ -40,9 +40,10 @@ func startManagedContainerWithPort(
 }
 
 type managedContainerOptions struct {
-	Network string
-	Service string
-	App     string
+	Network     string
+	DataNetwork string
+	Service     string
+	App         string
 }
 
 func startManagedDeploymentContainer(
@@ -121,6 +122,39 @@ func startManagedDeploymentContainerWithOptions(
 		)
 	}
 	defer cleanup()
+
+	if options.DataNetwork != "" {
+		if options.DataNetwork != reactorLabDataNetwork {
+			return fmt.Errorf("unsupported managed data network")
+		}
+		if err := validateReactorLabDataNetwork(); err != nil {
+			return err
+		}
+		args := managedContainerRunArgumentsWithOptions(
+			containerName, imageName, hostPort, containerPort, envFile, options,
+		)
+		args[0] = "create"
+		args = append(args[:1], args[2:]...)
+		output, err := runCommand("", "docker", args...)
+		if err != nil {
+			log.Printf("docker create failed:\n%s", output)
+			return fmt.Errorf("docker create: %w", err)
+		}
+		cleanupContainer := func() {
+			_, _ = runCommand("", "docker", "rm", "-f", containerName)
+		}
+		if output, err := runCommand("", "docker", "network", "connect", options.DataNetwork, containerName); err != nil {
+			log.Printf("docker data network connect failed:\n%s", output)
+			cleanupContainer()
+			return fmt.Errorf("connect private data network: %w", err)
+		}
+		if output, err := runCommand("", "docker", "start", containerName); err != nil {
+			log.Printf("docker start failed:\n%s", output)
+			cleanupContainer()
+			return fmt.Errorf("docker start: %w", err)
+		}
+		return nil
+	}
 
 	args := managedContainerRunArgumentsWithOptions(
 		containerName,

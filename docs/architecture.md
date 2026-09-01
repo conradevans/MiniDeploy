@@ -620,6 +620,80 @@ persists or returns it. The host operator/root/Docker-capable account is trusted
 and can inherently inspect container environments; this boundary does not make
 Docker secrets opaque to host administrators.
 
+## MiniBase Integration Boundary
+
+MiniDeploy and MiniBase remain separate services. MiniDeploy communicates only
+with MiniBase's token-authenticated API at the fixed loopback origin
+`http://127.0.0.1:9100`; it does not read MiniBase SQLite, database credential
+files, the PostgreSQL administrator password, or backup files. The shared
+service token is the sole intentional MiniBase secret-file dependency:
+
+```text
+/srv/minibase/secrets/minideploy-integration-token
+```
+
+The client requires a regular mode-`0600` token file, uses bounded response
+bodies and request deadlines, rejects non-loopback/public URLs, validates every
+response shape, and never includes a secret-bearing response body in an error.
+
+Deployment metadata stores only a future-compatible attachment slice whose v1
+contents are:
+
+```text
+attachmentId
+databaseId
+displayName
+bindingName = primary
+```
+
+No password, role, internal database name, credential path, or connection URI is
+persisted. Attachments belong to the application, not a release. History omits
+them, while ordinary redeploys, signed-webhook redeploys, and rollbacks copy the
+current attachment into the candidate. Rollback uses the older release's
+migration declaration but the current database; code rollback and database
+restore are separate operations.
+
+When starting a supported attached backend, MiniDeploy resolves the binding and
+constructs the PostgreSQL URI with Go's `net/url` escaping. The generated value
+exists only in memory, a temporary owner-only env-file, and the backend
+container's local Docker metadata. It is not added to the persisted application
+environment. A user-managed `DATABASE_URL` conflicts with attachment, and
+future environment replacement remains blocked while the conflict exists.
+
+The existing `reactorlab-data` network must inspect as `bridge` with
+`Internal=true`. MiniDeploy never creates or deletes it. Database-enabled
+containers use `docker create`, join `reactorlab-data`, and only then start, so a
+backend cannot race its private-network attachment. Full-stack backends retain
+the normal per-release network as well; frontends remain only on the release
+network and receive no runtime environment or database credential. Host ports
+remain loopback-only.
+
+For npm Node/Express images, a detected `reactorlab:migrate` package script runs
+as:
+
+```text
+npm run reactorlab:migrate
+```
+
+The one-off backend-image container has `--rm`, no published port, the private
+data network, and a temporary env-file. Missing scripts skip normally. A failed
+migration prevents candidate startup/cutover and leaves the active release and
+database attachment intact. Output is redacted before it can enter deployment
+logs. Package managers not currently supported by MiniDeploy's zero-config
+detectors are rejected rather than guessed.
+
+Deleting a deployment first removes only resources owned by that deployment,
+then asks MiniBase to delete the attachment relationship. No MiniBase
+database-delete operation exists. If detachment fails, MiniDeploy preserves its
+deployment metadata so deletion can be retried; the independent database,
+role, credential, and backups remain. A successful detach allows normal
+deployment metadata cleanup.
+
+If MiniBase is unavailable, inventory and already-running applications remain
+available. Operations that require new binding material fail safely. Runtime or
+deployment log retrieval for an attached app also fails closed if current
+binding material cannot be resolved for redaction.
+
 ## systemd Hardening
 
 The MiniDeploy systemd service uses restrictions including:

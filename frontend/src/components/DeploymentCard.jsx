@@ -31,6 +31,7 @@ export default function DeploymentCard({
   onHistory,
   onRollback,
   onDelete,
+	onDatabase,
 }) {
   const url = publicUrl(deployment.app)
   const running = deployment.status === 'running'
@@ -44,6 +45,16 @@ export default function DeploymentCard({
     : []
   const isFullstack =
     deployment.strategy === 'fullstack-vite-node' && services.length > 0
+	const databaseSupported =
+		deployment.strategy === 'node-express' ||
+		deployment.strategy === 'fullstack-vite-node'
+	const databaseAttachments = Array.isArray(deployment.databaseAttachments)
+		? deployment.databaseAttachments
+		: []
+	const database = databaseAttachments.find(
+		(attachment) => attachment?.bindingName === 'primary' &&
+			typeof attachment.displayName === 'string',
+	)
 
   return (
     <article className="deployment-card">
@@ -161,6 +172,32 @@ export default function DeploymentCard({
         </div>
       )}
 
+
+		<section className="database-summary" aria-label="MiniBase database">
+			<div>
+				<span className="meta-label">MINIBASE</span>
+				{database ? (
+					<>
+						<strong>{database.displayName}</strong>
+						<small>Ready · Primary binding · Backend connection managed</small>
+					</>
+				) : (
+					<>
+						<strong>No database attached</strong>
+						<small>
+							{databaseSupported
+								? 'Create or attach one primary PostgreSQL database.'
+								: 'Database attachment is unavailable for this deployment strategy.'}
+						</small>
+					</>
+				)}
+			</div>
+			{!database && databaseSupported ? (
+				<button className="button secondary" type="button" onClick={() => onDatabase(deployment)} disabled={busy}>
+					Add MiniBase Database
+				</button>
+			) : null}
+		</section>
       {environmentVariables.length > 0 && (
         <div className="environment-summary">
           <span className="meta-label">

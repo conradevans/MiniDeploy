@@ -1421,3 +1421,70 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+.database-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 12px;
+  padding: 15px;
+  border: 1px solid #25352c;
+  border-radius: 10px;
+  background: #0d1410;
+}
+
+.database-summary > div {
+  display: grid;
+  gap: 6px;
+}
+
+.database-summary strong {
+  color: #d8e5dc;
+  font-size: 13px;
+}
+
+.database-summary small {
+  color: #708078;
+  font-size: 10px;
+}
+
+.database-dialog {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.database-dialog > p {
+  margin: 0;
+  color: #9098a5;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.database-dialog fieldset {
+  display: flex;
+  gap: 18px;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #303641;
+  border-radius: 9px;
+}
+
+.database-dialog legend {
+  padding: 0 6px;
+  color: #8b939f;
+  font-size: 11px;
+}
+
+.database-dialog fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.database-dialog select {
+  min-height: 43px;
+  padding: 0 10px;
+  border: 1px solid #303641;

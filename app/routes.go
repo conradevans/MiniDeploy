@@ -22,6 +22,18 @@ func routes() *http.ServeMux {
 		"GET /deployments",
 		deploymentsHandler,
 	)
+	mux.HandleFunc(
+		"GET /minibase/databases",
+		availableMiniBaseDatabasesHandler,
+	)
+	mux.HandleFunc(
+		"GET /deployments/{app}/database",
+		deploymentDatabaseHandler,
+	)
+	mux.HandleFunc(
+		"POST /deployments/{app}/database",
+		deploymentDatabaseHandler,
+	)
 
 	mux.HandleFunc(
 		"GET /deployments/{app}/logs",
@@ -172,6 +184,21 @@ func registerPublicAdminRoutes(
 	admin(
 		"GET /api/admin/deployments",
 		deploymentsHandler,
+	)
+
+	admin(
+		"GET /api/admin/minibase/databases",
+		availableMiniBaseDatabasesHandler,
+	)
+
+	admin(
+		"GET /api/admin/deployments/{app}/database",
+		deploymentDatabaseHandler,
+	)
+
+	admin(
+		"POST /api/admin/deployments/{app}/database",
+		deploymentDatabaseHandler,
 	)
 
 	admin(

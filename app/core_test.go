@@ -23,17 +23,37 @@ func TestRepoName(t *testing.T) {
 		{
 			name: "HTTPS repository",
 			url:  "https://github.com/conradevans/MyScheduler.git",
-			want: "MyScheduler",
+			want: "myscheduler",
 		},
 		{
 			name: "repository without git suffix",
 			url:  "https://github.com/conradevans/GolfMullet",
-			want: "GolfMullet",
+			want: "golfmullet",
 		},
 		{
 			name: "trailing slash",
 			url:  "https://github.com/conradevans/MiniDeploy.git/",
-			want: "MiniDeploy",
+			want: "minideploy",
+		},
+		{
+			name: "mixed case with git suffix",
+			url:  "https://github.com/conradevans/GolfMullet.git",
+			want: "golfmullet",
+		},
+		{
+			name: "portfolio canonicalized",
+			url:  "https://github.com/conradevans/Portfolio.git",
+			want: "portfolio",
+		},
+		{
+			name: "already lowercase unchanged",
+			url:  "https://github.com/conradevans/portfolio.git",
+			want: "portfolio",
+		},
+		{
+			name: "uppercase only",
+			url:  "https://github.com/conradevans/GOLFMULLET.git",
+			want: "golfmullet",
 		},
 		{
 			name: "empty URL",
@@ -75,6 +95,50 @@ func TestRepoName(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestRepositoryNameCaseVariantsCollide(t *testing.T) {
+	variants := []string{
+		"https://github.com/conradevans/GolfMullet.git",
+		"https://github.com/conradevans/golfmullet.git",
+		"https://github.com/conradevans/GOLFMULLET.git",
+	}
+
+	for _, repositoryURL := range variants {
+		if got := repoName(repositoryURL); got != "golfmullet" {
+			t.Fatalf("repoName(%q) = %q; want golfmullet", repositoryURL, got)
+		}
+	}
+}
+
+func TestDeployRejectsLegacyCaseVariantCollision(t *testing.T) {
+	restoreStore := replaceStoreForTest(
+		t,
+		staticDeploymentStore{
+			records: []DeploymentRecord{{App: "GolfMullet"}},
+		},
+	)
+	defer restoreStore()
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"http://localhost:9000/deploy",
+		strings.NewReader(
+			`{"repoUrl":"https://github.com/conradevans/golfmullet.git"}`,
+		),
+	)
+	recorder := httptest.NewRecorder()
+
+	deployHandler(recorder, req)
+
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf(
+			"case-variant deployment status = %d; want %d; body=%s",
+			recorder.Code,
+			http.StatusConflict,
+			recorder.Body.String(),
+		)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 )
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -46,18 +47,21 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := store.Get(appName); err == nil {
-		http.Error(
-			w,
-			"deployment already exists; use redeploy",
-			http.StatusConflict,
-		)
-		return
-	} else if !errors.Is(err, ErrDeploymentNotFound) {
+	exists, err := deploymentIdentifierExists(appName)
+	if err != nil {
 		http.Error(
 			w,
 			"failed to check deployment metadata",
 			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if exists {
+		http.Error(
+			w,
+			"deployment already exists; use redeploy",
+			http.StatusConflict,
 		)
 		return
 	}
@@ -138,6 +142,21 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 	)
 
 	writeJSON(w, http.StatusCreated, deploymentResponse(record))
+}
+
+func deploymentIdentifierExists(app string) (bool, error) {
+	records, err := store.List()
+	if err != nil {
+		return false, err
+	}
+
+	for _, record := range records {
+		if strings.EqualFold(record.App, app) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func redeployHandler(w http.ResponseWriter, r *http.Request) {

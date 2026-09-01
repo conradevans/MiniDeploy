@@ -883,6 +883,12 @@ func repoName(
 		".git",
 	)
 
+	// Repository names are user-controlled input and become identifiers for
+	// Docker, Caddy, managed files, and persisted deployment metadata. Keep
+	// the submitted repository URL unchanged, but derive one canonical app
+	// identifier before validation or resource construction.
+	name = strings.ToLower(name)
+
 	if validateApplicationName(name) != nil {
 		return ""
 	}

@@ -282,6 +282,113 @@ func TestFullstackMetadataAndHistoryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGolfMulletRepositoryProducesCanonicalResources(t *testing.T) {
+	const repositoryURL = "https://github.com/conradevans/GolfMullet.git"
+
+	repository := t.TempDir()
+	writeFullstackFixture(t, repository, true, true)
+	plan, err := detectDeploymentStrategy(repository, deploymentConfig{})
+	if err != nil {
+		t.Fatalf("detectDeploymentStrategy() error: %v", err)
+	}
+	if plan.Strategy != deploymentStrategyFullstackViteNode {
+		t.Fatalf("strategy = %q; want %q", plan.Strategy, deploymentStrategyFullstackViteNode)
+	}
+
+	app := repoName(repositoryURL)
+	record, err := newFullstackReleaseRecord(
+		app,
+		repositoryURL,
+		plan,
+		"production-regression",
+		"release",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("newFullstackReleaseRecord() error: %v", err)
+	}
+
+	if record.App != "golfmullet" {
+		t.Fatalf("record app = %q; want golfmullet", record.App)
+	}
+	if record.RepoURL != repositoryURL {
+		t.Fatalf("record repository URL = %q; want original %q", record.RepoURL, repositoryURL)
+	}
+	metadataStore := NewJSONStore(filepath.Join(t.TempDir(), "deployments.json"))
+	if err := metadataStore.Save(record); err != nil {
+		t.Fatalf("persist canonical record: %v", err)
+	}
+	persisted, err := metadataStore.Get("golfmullet")
+	if err != nil {
+		t.Fatalf("load canonical record: %v", err)
+	}
+	if persisted.App != "golfmullet" || persisted.RepoURL != repositoryURL {
+		t.Fatalf("persisted identity = app %q, repository %q", persisted.App, persisted.RepoURL)
+	}
+	if version := deploymentVersion(record); version.App != "golfmullet" || version.RepoURL != repositoryURL {
+		t.Fatalf("history identity = app %q, repository %q", version.App, version.RepoURL)
+	}
+
+	if record.Network != "minideploy-golfmullet-release-production-regression" {
+		t.Fatalf("network = %q", record.Network)
+	}
+	if hostname := publicHostnameForApp(record.App); hostname != "golfmullet.reactorlab.dev" {
+		t.Fatalf("public hostname = %q; want golfmullet.reactorlab.dev", hostname)
+	}
+
+	previousDeploymentsDir := deploymentsDir
+	deploymentsDir = filepath.Join(t.TempDir(), "managed-deployments")
+	t.Cleanup(func() { deploymentsDir = previousDeploymentsDir })
+	managedPath, err := managedDeploymentPath(record.App)
+	if err != nil || filepath.Base(managedPath) != "golfmullet" {
+		t.Fatalf("managed path = %q, error=%v", managedPath, err)
+	}
+	secretStore := newRuntimeEnvironmentFileStore(filepath.Join(t.TempDir(), "secrets"))
+	secretPath, err := secretStore.path(record.App)
+	if err != nil || filepath.Base(secretPath) != "golfmullet.env" {
+		t.Fatalf("secret path = %q, error=%v", secretPath, err)
+	}
+	logPath, err := deploymentLogPath(record.App)
+	if err != nil || filepath.Base(logPath) != "golfmullet.log" {
+		t.Fatalf("deployment log path = %q, error=%v", logPath, err)
+	}
+
+	expectedResources := map[string]struct {
+		image     string
+		container string
+	}{
+		fullstackFrontendService: {
+			image:     "minideploy-golfmullet-frontend:production-regression",
+			container: "minideploy-golfmullet-frontend-release-production-regression",
+		},
+		fullstackBackendService: {
+			image:     "minideploy-golfmullet-backend:production-regression",
+			container: "minideploy-golfmullet-backend-release-production-regression",
+		},
+	}
+	for serviceName, expected := range expectedResources {
+		service, ok := deploymentServiceByName(record, serviceName)
+		if !ok {
+			t.Fatalf("missing %s service", serviceName)
+		}
+		if service.Image != expected.image || service.Container != expected.container {
+			t.Fatalf("%s resources = image %q, container %q", serviceName, service.Image, service.Container)
+		}
+		if service.Image != strings.ToLower(service.Image) ||
+			service.Container != strings.ToLower(service.Container) {
+
+			t.Fatalf("%s resources are not lowercase", serviceName)
+		}
+	}
+
+	singleServiceImage := versionedImageName(app)
+	if !strings.HasPrefix(singleServiceImage, "minideploy-golfmullet:") ||
+		singleServiceImage != strings.ToLower(singleServiceImage) {
+
+		t.Fatalf("single-service image = %q", singleServiceImage)
+	}
+}
+
 func fullstackTestRecord(app string, release string) DeploymentRecord {
 	return normalizeDeploymentRecord(DeploymentRecord{
 		App:                  app,

@@ -64,13 +64,17 @@ If the candidate fails to build or becomes unhealthy, the existing deployment st
 
 MiniDeploy stores previous deployment versions and can restore an earlier Docker image using the same candidate-and-cutover strategy. Deployment history preserves the repository, image, container port, health path, previous host port, and deployment timestamp.
 
-### Zero-Config Vite and Node/Express Deployments
+### Zero-Config Vite, Node/Express, and Full-Stack Deployments
 
 The Admin deploy form normally requires only a Git repository URL. After
 cloning, MiniDeploy selects a conservative deployment strategy:
 
 - A repository-root `Dockerfile` always uses the existing Dockerfile strategy
   and any advanced container-port or health-path settings.
+- Before the root single-service detectors, an exact `frontend/` Vite plus
+  `backend/` Node/Express layout is selected as one `fullstack-vite-node`
+  project. Both directories must independently satisfy the existing
+  conservative detectors and remain contained within the checkout.
 - A repository without a Dockerfile is selected as `vite-static` only when it
   has `package.json`, a build script, and Vite build-system evidence.
 - After Vite, a repository is selected as `node-express` only when it is a
@@ -102,6 +106,15 @@ contain neither names nor values. Omitting `environment` during redeploy
 preserves the current map; supplying a map replaces it, including `{}` to
 clear it. Webhook redeploys, restarts, and rollbacks retain the current runtime
 configuration.
+
+A full-stack project is cloned once and produces two generated images from the
+fixed `frontend/` and `backend/` directories. MiniDeploy starts both services on
+a dedicated per-release Docker bridge network, health-checks both, and performs
+a single Caddy cutover only after the pair is healthy. One public hostname
+routes `/api` and `/api/*` to the backend and all other paths to the Vite/nginx
+frontend. Runtime environment values are injected into the backend only.
+Redeploy, webhook, restart, history, rollback, and deletion operate on the pair
+as one project; legacy single-service records remain unchanged.
 
 ### GitHub Auto-Deploy
 
@@ -142,7 +155,7 @@ The React/Vite frontend selects one of three server-defined experiences:
 
 Admin Mode supports:
 
-- creating Dockerfile, zero-config Vite, or zero-config Node/Express deployments
+- creating Dockerfile, zero-config Vite, Node/Express, or full-stack deployments
 - supplying masked runtime environment values while displaying names only
 - viewing application status and configuration
 - opening public application URLs

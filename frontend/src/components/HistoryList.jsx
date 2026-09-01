@@ -1,3 +1,52 @@
+function HistoryDetails({ version }) {
+  const services = Array.isArray(version.services) ? version.services : []
+
+  if (version.strategy === 'fullstack-vite-node' && services.length > 0) {
+    return (
+      <div className="history-details">
+        <strong>Paired full-stack release</strong>
+        <div className="history-meta">
+          <span>
+            {version.deployedAt
+              ? new Date(version.deployedAt).toLocaleString()
+              : 'Unknown time'}
+          </span>
+        </div>
+        <div className="history-services">
+          {services.map((service) => (
+            <div key={service.name}>
+              <strong>
+                {service.name === 'frontend' ? 'Frontend' : 'Backend'}
+              </strong>
+              <span>{service.image}</span>
+              <small>
+                {service.path}/ · container port {service.containerPort} ·
+                health {service.healthPath}
+              </small>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="history-details">
+      <strong>{version.image}</strong>
+      <div className="history-meta">
+        <span>
+          {version.deployedAt
+            ? new Date(version.deployedAt).toLocaleString()
+            : 'Unknown time'}
+        </span>
+        <span>Host port {version.port || '—'}</span>
+        <span>Container port {version.containerPort || 'legacy'}</span>
+        <span>Health {version.healthPath || 'legacy'}</span>
+      </div>
+    </div>
+  )
+}
+
 export default function HistoryList({ versions }) {
   if (!versions?.length) {
     return (
@@ -18,29 +67,7 @@ export default function HistoryList({ versions }) {
             {index + 1}
           </div>
 
-          <div className="history-details">
-            <strong>{version.image}</strong>
-
-            <div className="history-meta">
-              <span>
-                {version.deployedAt
-                  ? new Date(version.deployedAt).toLocaleString()
-                  : 'Unknown time'}
-              </span>
-
-              <span>
-                Host port {version.port || '—'}
-              </span>
-
-              <span>
-                Container port {version.containerPort || 'legacy'}
-              </span>
-
-              <span>
-                Health {version.healthPath || 'legacy'}
-              </span>
-            </div>
-          </div>
+          <HistoryDetails version={version} />
         </div>
       ))}
     </div>

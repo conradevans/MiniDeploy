@@ -81,6 +81,10 @@ func rollbackDeployment(
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
+	if current.Strategy == deploymentStrategyFullstackViteNode {
+		return rollbackFullstackLocked(current)
+	}
+
 	environment, err := runtimeEnvironmentStore.Load(
 		current.App,
 	)
@@ -414,11 +418,35 @@ func removePrunedHistoryImages(
 	}
 
 	for _, version := range versions {
-		if version.Image == "" ||
-			keep[version.Image] {
+		record := version.Record()
+		if record.Strategy == deploymentStrategyFullstackViteNode {
+			if err := validateFullstackServiceMetadata(record.Services); err != nil {
+				log.Printf("warning: refusing to prune invalid full-stack history: %v", err)
+				continue
+			}
+			for _, service := range record.Services {
+				if keep[service.Image] {
+					continue
+				}
+				if err := removeFullstackImage(
+					record.App,
+					service.Name,
+					service.Image,
+				); err != nil {
+					log.Printf(
+						"warning: failed to prune old %s image %s: %v",
+						service.Name,
+						service.Image,
+						err,
+					)
+				}
+			}
 			continue
 		}
 
+		if version.Image == "" || keep[version.Image] {
+			continue
+		}
 		if output, err := runCommand(
 			"",
 			"docker",

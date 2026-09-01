@@ -1333,3 +1333,91 @@ footer {
     padding: 12px;
   }
 }
+
+.service-summary {
+  margin-top: 19px;
+}
+
+.project-strategy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.project-strategy strong {
+  color: #d5d8dd;
+  font-size: 12px;
+}
+
+.service-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.service-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #29303a;
+  border-radius: 10px;
+  background: #0d1014;
+}
+
+.service-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-heading strong {
+  display: block;
+  margin-top: 4px;
+  color: #eceef1;
+}
+
+.service-metadata {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.service-metadata .service-image {
+  grid-column: 1 / -1;
+}
+
+.history-services {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.history-services > div {
+  display: grid;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid #303641;
+  border-radius: 7px;
+  background: #161a20;
+}
+
+.history-services span,
+.history-services small {
+  overflow: hidden;
+  color: #777f8b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 760px) {
+  .service-list,
+  .service-metadata {
+    grid-template-columns: 1fr;
+  }
+}

@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	deploymentStrategyDockerfile  = "dockerfile"
-	deploymentStrategyViteStatic  = "vite-static"
-	deploymentStrategyNodeExpress = "node-express"
+	deploymentStrategyDockerfile        = "dockerfile"
+	deploymentStrategyFullstackViteNode = "fullstack-vite-node"
+	deploymentStrategyViteStatic        = "vite-static"
+	deploymentStrategyNodeExpress       = "node-express"
 
 	packageManagerNPM       = "npm"
 	packageInstallModeCI    = "ci"
@@ -29,6 +30,13 @@ type deploymentConfig struct {
 	HealthPath    string
 }
 
+type deploymentServiceBuildPlan struct {
+	Name           string
+	Path           string
+	RepositoryPath string
+	Build          deploymentBuildPlan
+}
+
 type deploymentBuildPlan struct {
 	Strategy            string
 	PackageManager      string
@@ -36,6 +44,7 @@ type deploymentBuildPlan struct {
 	ContainerPort       int
 	HealthPath          string
 	GeneratedDockerfile string
+	Services            []deploymentServiceBuildPlan
 }
 
 type deploymentStrategyDetector interface {
@@ -47,6 +56,7 @@ type deploymentStrategyDetector interface {
 
 var deploymentStrategyDetectors = []deploymentStrategyDetector{
 	dockerfileStrategyDetector{},
+	fullstackViteNodeStrategyDetector{},
 	viteStaticStrategyDetector{},
 	nodeExpressStrategyDetector{},
 }
@@ -57,27 +67,18 @@ func (dockerfileStrategyDetector) Detect(
 	repositoryPath string,
 	requested deploymentConfig,
 ) (deploymentBuildPlan, bool, error) {
-	dockerfilePath := filepath.Join(
+	_, found, err := repositoryRegularFile(
 		repositoryPath,
 		"Dockerfile",
 	)
-
-	info, err := os.Stat(dockerfilePath)
-	if errors.Is(err, os.ErrNotExist) {
-		return deploymentBuildPlan{}, false, nil
-	}
-
 	if err != nil {
 		return deploymentBuildPlan{}, false, fmt.Errorf(
 			"inspect Dockerfile: %w",
 			err,
 		)
 	}
-
-	if !info.Mode().IsRegular() {
-		return deploymentBuildPlan{}, false, fmt.Errorf(
-			"Dockerfile is not a regular file",
-		)
+	if !found {
+		return deploymentBuildPlan{}, false, nil
 	}
 
 	return deploymentBuildPlan{
@@ -513,6 +514,9 @@ func deploymentStrategyForRecord(
 
 		return plan, nil
 
+	case deploymentStrategyFullstackViteNode:
+		return persistedFullstackBuildPlan(record, repositoryPath)
+
 	case deploymentStrategyViteStatic:
 		if record.PackageManager != packageManagerNPM {
 			return deploymentBuildPlan{}, fmt.Errorf(
@@ -668,16 +672,21 @@ func deploymentStrategyForRecord(
 func readNodePackageManifest(
 	repositoryPath string,
 ) (nodePackageManifest, bool, error) {
-	manifestPath := filepath.Join(
+	manifestPath, found, err := repositoryRegularFile(
 		repositoryPath,
 		"package.json",
 	)
-
-	data, err := os.ReadFile(manifestPath)
-	if errors.Is(err, os.ErrNotExist) {
+	if err != nil {
+		return nodePackageManifest{}, false, fmt.Errorf(
+			"inspect package.json: %w",
+			err,
+		)
+	}
+	if !found {
 		return nodePackageManifest{}, false, nil
 	}
 
+	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nodePackageManifest{}, false, fmt.Errorf(
 			"read package.json: %w",
@@ -720,14 +729,7 @@ func repositoryHasViteConfig(
 		"vite.config.mts",
 		"vite.config.cts",
 	} {
-		info, err := os.Stat(
-			filepath.Join(repositoryPath, name),
-		)
-
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-
+		_, found, err := repositoryRegularFile(repositoryPath, name)
 		if err != nil {
 			return false, fmt.Errorf(
 				"inspect %s: %w",
@@ -735,8 +737,7 @@ func repositoryHasViteConfig(
 				err,
 			)
 		}
-
-		if info.Mode().IsRegular() {
+		if found {
 			return true, nil
 		}
 	}
@@ -747,21 +748,18 @@ func repositoryHasViteConfig(
 func npmInstallMode(
 	repositoryPath string,
 ) (string, error) {
-	lockPath := filepath.Join(
+	_, found, err := repositoryRegularFile(
 		repositoryPath,
 		"package-lock.json",
 	)
-
-	_, err := os.Stat(lockPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return packageInstallModeSetup, nil
-	}
-
 	if err != nil {
 		return "", fmt.Errorf(
 			"inspect package-lock.json: %w",
 			err,
 		)
+	}
+	if !found {
+		return packageInstallModeSetup, nil
 	}
 
 	if _, err := validatedPackageLock(repositoryPath); err != nil {
@@ -774,9 +772,20 @@ func npmInstallMode(
 func validatedPackageLock(
 	repositoryPath string,
 ) (npmPackageLock, error) {
-	data, err := os.ReadFile(
-		filepath.Join(repositoryPath, "package-lock.json"),
+	lockPath, found, err := repositoryRegularFile(
+		repositoryPath,
+		"package-lock.json",
 	)
+	if err != nil {
+		return npmPackageLock{}, fmt.Errorf(
+			"inspect package-lock.json: %w",
+			err,
+		)
+	}
+	if !found {
+		return npmPackageLock{}, fmt.Errorf("package-lock.json is missing")
+	}
+	data, err := os.ReadFile(lockPath)
 	if err != nil {
 		return npmPackageLock{}, fmt.Errorf(
 			"read package-lock.json: %w",
@@ -971,6 +980,21 @@ func describeDeploymentPlan(
 			app,
 			"Detected Dockerfile deployment strategy.",
 		)
+
+	case deploymentStrategyFullstackViteNode:
+		deploymentEvent(
+			app,
+			"Detected full-stack Vite + Node/Express project.",
+		)
+		for _, service := range plan.Services {
+			deploymentEvent(
+				app,
+				"%s: detected %s in %s/.",
+				fullstackServiceDisplayName(service.Name),
+				service.Build.Strategy,
+				service.Path,
+			)
+		}
 
 	case deploymentStrategyViteStatic:
 		deploymentEvent(

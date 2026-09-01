@@ -216,6 +216,14 @@ Inspect repository
              v
       Ordered project detectors
              |
+             +-- exact frontend/ + backend/ layout
+             |   + conservative Vite and Express evidence
+             |          |
+             |          v
+             |   fullstack-vite-node strategy
+             |   two service images, one project release
+             |   frontend port 80 + backend port 3000 by default
+             |
              +-- package.json + build script
              |   + Vite evidence
              |          |
@@ -283,6 +291,20 @@ script, and Express in runtime dependencies. It deliberately rejects
 TypeScript indicators, Next.js, NestJS, Fastify, Koa, Bun, Deno, pnpm, and yarn.
 The same boundary is revalidated when the persisted strategy is reused.
 
+The `fullstack-vite-node` detector runs before the root Vite and Node detectors
+and supports only an exact `frontend/` Vite plus `backend/` Node/Express
+layout. Both service directories and repository-controlled files are resolved
+as strict descendants of the checkout, including symlink targets. A root
+`Dockerfile` remains authoritative. The repository is cloned once and each
+service reuses its existing generated runtime and independent npm install mode.
+
+Each candidate release gets two loopback-published containers and a dedicated,
+labeled Docker bridge network. Fixed `frontend` and `backend` service identities
+are derived only from the validated application name. Caddy owns the public
+split on the project's single hostname: `/api` and `/api/*` go to the backend;
+all other paths go to the Vite/nginx frontend, which retains SPA fallback. The
+backend has no separate public hostname.
+
 For `vite-static`, MiniDeploy writes a temporary generated Dockerfile outside
 the cloned repository and uses the repository only as the Docker build context.
 The build uses:
@@ -310,6 +332,10 @@ must honor `process.env.PORT`.
 ## Zero-Downtime Redeployment
 
 Redeployments preserve the currently running version until the replacement is proven healthy.
+For full-stack projects, the candidate is a matched frontend/backend pair.
+MiniDeploy builds, starts, and health-checks both services before one route
+cutover. A failure in either service removes only candidate resources and
+leaves the current pair, route, and runtime environment unchanged.
 
 ```text
 Current version
@@ -363,6 +389,10 @@ Rollback is also performed using a candidate container.
 6. Switch Caddy traffic.
 7. Retire the previously active container.
 
+For full-stack projects, rollback starts both historical service images on a
+new project network, verifies both with the current backend runtime environment,
+and switches them together. Mixed frontend/backend releases are never routed.
+
 Historical records preserve their own:
 
 ```text
@@ -371,6 +401,7 @@ healthPath
 strategy
 packageManager
 packageInstallMode
+services (for paired full-stack releases)
 ```
 
 Legacy history entries fall back to the current deployment configuration.

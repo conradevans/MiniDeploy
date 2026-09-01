@@ -5,14 +5,14 @@ import (
 )
 
 const (
-	deploymentsDir = "/srv/minideploy/managed-deployments"
-	metadataPath   = "/srv/minideploy/data/deployments.json"
-	minDeployPort  = 8081
-	maxDeployPort  = 8999
+	metadataPath  = "/srv/minideploy/data/deployments.json"
+	minDeployPort = 8081
+	maxDeployPort = 8999
 )
 
 var (
-	deployMu sync.Mutex
+	deploymentsDir = "/srv/minideploy/managed-deployments"
+	deployMu       sync.Mutex
 
 	store DeploymentStore = NewJSONStore(
 		metadataPath,

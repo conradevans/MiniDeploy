@@ -115,18 +115,20 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := syncProxyRoutes(); err != nil {
-		log.Printf(
-			"proxy sync failed after deploying %s: %v",
-			record.App,
-			err,
-		)
-		http.Error(
-			w,
-			"deployment succeeded but proxy sync failed",
-			http.StatusInternalServerError,
-		)
-		return
+	if record.Strategy != deploymentStrategyFullstackViteNode {
+		if err := syncProxyRoutes(); err != nil {
+			log.Printf(
+				"proxy sync failed after deploying %s: %v",
+				record.App,
+				err,
+			)
+			http.Error(
+				w,
+				"deployment succeeded but proxy sync failed",
+				http.StatusInternalServerError,
+			)
+			return
+		}
 	}
 
 	deploymentEvent(
@@ -429,7 +431,8 @@ func logsHandler(
 		return
 	}
 
-	if !containerExists(record.Container) {
+	if record.Strategy != deploymentStrategyFullstackViteNode &&
+		!containerExists(record.Container) {
 		http.Error(
 			w,
 			"deployment container not found",
@@ -474,8 +477,8 @@ func logsHandler(
 		return
 	}
 
-	output, err := containerLogs(
-		record.Container,
+	containerName, output, err := deploymentRuntimeLogs(
+		record,
 		200,
 		environment,
 	)
@@ -500,7 +503,7 @@ func logsHandler(
 		http.StatusOK,
 		LogsResponse{
 			App:       record.App,
-			Container: record.Container,
+			Container: containerName,
 			Logs:      output,
 		},
 	)
@@ -587,20 +590,7 @@ func restartDeploymentHandler(
 		return
 	}
 
-	if !containerExists(record.Container) {
-		http.Error(
-			w,
-			"deployment container not found",
-			http.StatusNotFound,
-		)
-		return
-	}
-
-	output, err := runCommand(
-		"",
-		"docker",
-		restartContainerArguments(record.Container)...,
-	)
+	containerName, output, err := restartDeploymentContainers(record)
 
 	if err != nil {
 		log.Printf(
@@ -623,7 +613,7 @@ func restartDeploymentHandler(
 		ActionResponse{
 			Status:    "running",
 			App:       record.App,
-			Container: record.Container,
+			Container: containerName,
 		},
 	)
 }
@@ -657,6 +647,27 @@ func deleteDeploymentHandler(
 		return
 	}
 
+	if record.Strategy == deploymentStrategyFullstackViteNode {
+		if err := deleteFullstackProject(record); err != nil {
+			log.Printf("failed to delete full-stack project %s: %v", record.App, err)
+			http.Error(
+				w,
+				"failed to delete deployment",
+				http.StatusInternalServerError,
+			)
+			return
+		}
+		writeJSON(
+			w,
+			http.StatusOK,
+			ActionResponse{
+				Status:    "deleted",
+				App:       record.App,
+				Container: record.Container,
+			},
+		)
+		return
+	}
 	deployPath, err := managedDeploymentPath(record.App)
 	if err != nil {
 		log.Printf(
@@ -878,7 +889,8 @@ func deploymentResponse(
 		Strategy:             record.Strategy,
 		PackageManager:       record.PackageManager,
 		EnvironmentVariables: record.EnvironmentVariables,
-		Status:               containerStatus(record.Container),
+		Services:             deploymentServiceResponses(record),
+		Status:               deploymentProjectStatus(record),
 	}
 }
 

@@ -39,6 +39,12 @@ func startManagedContainerWithPort(
 	)
 }
 
+type managedContainerOptions struct {
+	Network string
+	Service string
+	App     string
+}
+
 func startManagedDeploymentContainer(
 	app string,
 	containerName string,
@@ -47,6 +53,55 @@ func startManagedDeploymentContainer(
 	containerPort int,
 	strategy string,
 	environment map[string]string,
+) error {
+	return startManagedDeploymentContainerWithOptions(
+		app,
+		containerName,
+		imageName,
+		hostPort,
+		containerPort,
+		strategy,
+		environment,
+		managedContainerOptions{},
+	)
+}
+
+func startManagedProjectServiceContainer(
+	app string,
+	service string,
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+	strategy string,
+	environment map[string]string,
+	network string,
+) error {
+	return startManagedDeploymentContainerWithOptions(
+		app,
+		containerName,
+		imageName,
+		hostPort,
+		containerPort,
+		strategy,
+		environment,
+		managedContainerOptions{
+			Network: network,
+			Service: service,
+			App:     app,
+		},
+	)
+}
+
+func startManagedDeploymentContainerWithOptions(
+	app string,
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+	strategy string,
+	environment map[string]string,
+	options managedContainerOptions,
 ) error {
 	dockerEnvironment := dockerRuntimeEnvironment(
 		strategy,
@@ -67,12 +122,13 @@ func startManagedDeploymentContainer(
 	}
 	defer cleanup()
 
-	args := managedContainerRunArguments(
+	args := managedContainerRunArgumentsWithOptions(
 		containerName,
 		imageName,
 		hostPort,
 		containerPort,
 		envFile,
+		options,
 	)
 
 	output, err := runCommand(
@@ -118,6 +174,24 @@ func managedContainerRunArguments(
 	containerPort int,
 	envFile string,
 ) []string {
+	return managedContainerRunArgumentsWithOptions(
+		containerName,
+		imageName,
+		hostPort,
+		containerPort,
+		envFile,
+		managedContainerOptions{},
+	)
+}
+
+func managedContainerRunArgumentsWithOptions(
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+	envFile string,
+	options managedContainerOptions,
+) []string {
 	args := []string{
 		"run",
 		"-d",
@@ -130,6 +204,22 @@ func managedContainerRunArguments(
 			hostPort,
 			containerPort,
 		),
+	}
+
+	if options.Network != "" {
+		args = append(
+			args,
+			"--network",
+			options.Network,
+			"--network-alias",
+			options.Service,
+			"--label",
+			"com.minideploy.managed=true",
+			"--label",
+			"com.minideploy.app="+options.App,
+			"--label",
+			"com.minideploy.service="+options.Service,
+		)
 	}
 
 	if envFile != "" {
@@ -238,7 +328,17 @@ func findAvailablePort(
 	)
 }
 
+var commandRunner = executeCommand
+
 func runCommand(
+	dir string,
+	name string,
+	args ...string,
+) (string, error) {
+	return commandRunner(dir, name, args...)
+}
+
+func executeCommand(
 	dir string,
 	name string,
 	args ...string,

@@ -112,6 +112,23 @@ func deployRepository(
 		return DeploymentRecord{}, err
 	}
 
+	if plan.Strategy == deploymentStrategyFullstackViteNode {
+		describeDeploymentPlan(appName, plan)
+		record, err := deployFullstackProject(
+			appName,
+			repoURL,
+			plan,
+			environmentChange,
+		)
+		if err != nil {
+			if cleanupErr := removeManagedDeploymentPath(deployPath); cleanupErr != nil {
+				log.Printf("warning: clean failed full-stack checkout: %v", cleanupErr)
+			}
+			return DeploymentRecord{}, err
+		}
+		return record, nil
+	}
+
 	containerPort = plan.ContainerPort
 	healthPath = plan.HealthPath
 
@@ -351,6 +368,10 @@ func safeRedeploy(
 
 	deployMu.Lock()
 	defer deployMu.Unlock()
+
+	if old.Strategy == deploymentStrategyFullstackViteNode {
+		return safeRedeployFullstackLocked(old, environmentReplacement)
+	}
 
 	environmentChange, err := prepareRuntimeEnvironmentChange(
 		old.App,

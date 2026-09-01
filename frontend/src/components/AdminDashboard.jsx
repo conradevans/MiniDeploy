@@ -65,13 +65,16 @@ export default function AdminDashboard({ apiMode }) {
     try {
       const result = await api.deployApplication(config)
       const strategy = {
+        'fullstack-vite-node': 'Full-stack Vite + Node/Express',
         'vite-static': 'React + Vite',
         'node-express': 'Node + Express',
       }[result.strategy] || 'Dockerfile'
+      const destination = Array.isArray(result.services)
+        ? `with ${result.services.length} managed services.`
+        : `on host port ${result.port}.`
 
       setNotice(
-        `${result.app} deployed successfully using ${strategy} ` +
-          `on host port ${result.port}.`,
+        `${result.app} deployed successfully using ${strategy} ${destination}`,
       )
 
       await loadDeployments()

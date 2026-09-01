@@ -24,6 +24,8 @@
 - [x] Package Vite production bundles in a generated static runtime
 - [x] Detect conventional JavaScript Node/Express services conservatively
 - [x] Package Node/Express services in a generated npm runtime
+- [x] Detect exact `frontend/` Vite + `backend/` Express full-stack projects
+- [x] Build and manage paired frontend/backend releases as one project
 - [x] Persist runtime environment values separately with explicit lifecycle semantics
 - [x] Persist deployment strategy for redeploy, webhook, history, and rollback
 - [x] Restart applications
@@ -40,6 +42,8 @@
 - [x] Restrict application ports to loopback
 - [x] Publish `minideploy.reactorlab.dev`
 - [x] Separate public-origin traffic onto loopback port 9003
+- [x] Route full-stack `/api` traffic to the backend on one project hostname
+- [x] Use dedicated labeled Docker bridge networks per full-stack release
 
 ### Reliability
 
@@ -54,6 +58,8 @@
 - [x] Recover Docker applications after server reboot
 - [x] Test failed-build recovery
 - [x] Test live traffic during proxy cutover
+- [x] Require both full-stack services to pass health checks before cutover
+- [x] Redeploy and roll back full-stack service pairs atomically
 
 ### GitHub Automation
 
@@ -77,6 +83,8 @@
 - [x] Deploy applications
 - [x] Deploy standard React/Vite repositories from only a repository URL
 - [x] Deploy conventional Node/Express repositories from only a repository URL
+- [x] Deploy conventional full-stack repositories from one repository URL
+- [x] Present full-stack services as one Admin project with paired history
 - [x] Keep Dockerfile port and health settings behind advanced controls
 - [x] Add masked runtime environment variable controls and names-only status
 - [x] View application status
@@ -112,6 +120,8 @@
 - [x] Keep guest mutations, logs, and history unavailable
 - [x] Keep runtime environment names and values out of Guest Mode and history
 - [x] Inject runtime values with temporary Docker env-files
+- [x] Keep full-stack runtime environment values backend-only
+- [x] Validate full-stack paths, symlinks, and Docker resource ownership
 
 ### Testing
 
@@ -132,6 +142,7 @@
 - [x] Deployment-strategy detection and false-positive tests
 - [x] Vite package-lock, generated runtime, and SPA-fallback tests
 - [x] Zero-config Admin form serialization tests
+- [x] Full-stack detection, lifecycle, routing, isolation, and leak tests
 
 ## v1 Final Polish
 

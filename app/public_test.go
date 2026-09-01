@@ -90,13 +90,38 @@ func TestGuestDeploymentSerializationUsesAllowlist(
 ) {
 	response, err := guestDeploymentResponse(
 		DeploymentRecord{
-			App:           "portfolio-app",
-			RepoURL:       "https://github.com/private/repository.git",
-			Container:     "internal-container",
-			Image:         "private-image:secret",
-			Port:          8123,
-			ContainerPort: 3000,
-			HealthPath:    "/internal-health",
+			App:                  "portfolio-app",
+			RepoURL:              "https://github.com/private/repository.git",
+			Container:            "internal-container",
+			Image:                "private-image:secret",
+			Port:                 8123,
+			ContainerPort:        3000,
+			HealthPath:           "/internal-health",
+			Strategy:             deploymentStrategyFullstackViteNode,
+			Network:              "internal-network",
+			EnvironmentVariables: []string{"PRIVATE_SECRET"},
+			Services: []DeploymentServiceRecord{
+				{
+					Name:          "frontend",
+					Path:          "frontend",
+					Strategy:      deploymentStrategyViteStatic,
+					Container:     "private-frontend-container",
+					Image:         "private-frontend-image:v1",
+					Port:          8123,
+					ContainerPort: 80,
+					HealthPath:    "/",
+				},
+				{
+					Name:          "backend",
+					Path:          "backend",
+					Strategy:      deploymentStrategyNodeExpress,
+					Container:     "private-backend-container",
+					Image:         "private-backend-image:v1",
+					Port:          8124,
+					ContainerPort: 3000,
+					HealthPath:    "/internal-health",
+				},
+			},
 		},
 		"running",
 	)
@@ -146,6 +171,12 @@ func TestGuestDeploymentSerializationUsesAllowlist(
 		"8123",
 		"3000",
 		"internal-health",
+		"internal-network",
+		"PRIVATE_SECRET",
+		"frontend",
+		"backend",
+		"private-backend-image",
+		"8124",
 	}
 
 	serialized := string(data)

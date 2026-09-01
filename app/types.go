@@ -27,18 +27,33 @@ type RedeployRequest struct {
 }
 
 type DeploymentResponse struct {
-	App                  string   `json:"app"`
-	RepoURL              string   `json:"repoUrl"`
-	Container            string   `json:"container"`
-	Image                string   `json:"image"`
-	Port                 int      `json:"port"`
-	ContainerPort        int      `json:"containerPort"`
-	HealthPath           string   `json:"healthPath"`
-	Strategy             string   `json:"strategy"`
-	PackageManager       string   `json:"packageManager,omitempty"`
-	EnvironmentVariables []string `json:"environmentVariables,omitempty"`
+	App                  string                      `json:"app"`
+	RepoURL              string                      `json:"repoUrl"`
+	Container            string                      `json:"container"`
+	Image                string                      `json:"image"`
+	Port                 int                         `json:"port"`
+	ContainerPort        int                         `json:"containerPort"`
+	HealthPath           string                      `json:"healthPath"`
+	Strategy             string                      `json:"strategy"`
+	PackageManager       string                      `json:"packageManager,omitempty"`
+	EnvironmentVariables []string                    `json:"environmentVariables,omitempty"`
+	Services             []DeploymentServiceResponse `json:"services,omitempty"`
 
 	Status string `json:"status"`
+}
+
+type DeploymentServiceResponse struct {
+	Name               string `json:"name"`
+	Path               string `json:"path"`
+	Strategy           string `json:"strategy"`
+	Container          string `json:"container"`
+	Image              string `json:"image"`
+	Port               int    `json:"port"`
+	ContainerPort      int    `json:"containerPort"`
+	HealthPath         string `json:"healthPath"`
+	PackageManager     string `json:"packageManager,omitempty"`
+	PackageInstallMode string `json:"packageInstallMode,omitempty"`
+	Status             string `json:"status"`
 }
 
 type LogsResponse struct {

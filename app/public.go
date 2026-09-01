@@ -39,7 +39,7 @@ func guestDeploymentsHandler(
 	for _, record := range records {
 		response, err := guestDeploymentResponse(
 			record,
-			containerStatus(record.Container),
+			deploymentProjectStatus(record),
 		)
 		if errors.Is(err, ErrReservedPublicHostname) {
 			continue

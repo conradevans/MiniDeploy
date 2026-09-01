@@ -18,6 +18,11 @@ describe('Guest Mode', () => {
           containerPort: 3000,
           healthPath: '/private-health',
           logs: 'private output',
+          network: 'private-network',
+          environmentVariables: ['PRIVATE_SECRET'],
+          services: [
+            { name: 'backend', path: 'backend', image: 'backend-private:v1' },
+          ],
         },
       ]),
     }
@@ -40,6 +45,10 @@ describe('Guest Mode', () => {
       '3000',
       '/private-health',
       'private output',
+      'private-network',
+      'PRIVATE_SECRET',
+      'backend-private:v1',
+      'backend',
     ]
 
     for (const value of forbiddenText) {

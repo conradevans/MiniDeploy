@@ -11,17 +11,35 @@ import (
 var ErrDeploymentNotFound = errors.New("deployment not found")
 
 type DeploymentRecord struct {
-	App                  string   `json:"app"`
-	RepoURL              string   `json:"repoUrl"`
-	Container            string   `json:"container"`
-	Image                string   `json:"image"`
-	Port                 int      `json:"port"`
-	ContainerPort        int      `json:"containerPort"`
-	HealthPath           string   `json:"healthPath"`
-	Strategy             string   `json:"strategy,omitempty"`
-	PackageManager       string   `json:"packageManager,omitempty"`
-	PackageInstallMode   string   `json:"packageInstallMode,omitempty"`
-	EnvironmentVariables []string `json:"environmentVariables,omitempty"`
+	App                  string                    `json:"app"`
+	RepoURL              string                    `json:"repoUrl"`
+	Container            string                    `json:"container"`
+	Image                string                    `json:"image"`
+	Port                 int                       `json:"port"`
+	ContainerPort        int                       `json:"containerPort"`
+	HealthPath           string                    `json:"healthPath"`
+	Strategy             string                    `json:"strategy,omitempty"`
+	PackageManager       string                    `json:"packageManager,omitempty"`
+	PackageInstallMode   string                    `json:"packageInstallMode,omitempty"`
+	EnvironmentVariables []string                  `json:"environmentVariables,omitempty"`
+	Services             []DeploymentServiceRecord `json:"services,omitempty"`
+	Network              string                    `json:"network,omitempty"`
+}
+
+// DeploymentServiceRecord contains only non-secret lifecycle metadata for one
+// service in a multi-service project. Legacy single-service deployments keep
+// using the established top-level fields and have no Services entries.
+type DeploymentServiceRecord struct {
+	Name               string `json:"name"`
+	Path               string `json:"path"`
+	Strategy           string `json:"strategy"`
+	Container          string `json:"container"`
+	Image              string `json:"image"`
+	Port               int    `json:"port"`
+	ContainerPort      int    `json:"containerPort"`
+	HealthPath         string `json:"healthPath"`
+	PackageManager     string `json:"packageManager,omitempty"`
+	PackageInstallMode string `json:"packageInstallMode,omitempty"`
 }
 
 type DeploymentStore interface {

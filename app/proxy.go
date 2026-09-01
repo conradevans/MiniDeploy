@@ -43,6 +43,7 @@ func syncProxyRoutes() error {
 	publicIndex := 0
 
 	for _, record := range records {
+		record = normalizeDeploymentRecord(record)
 		if record.App == "" || record.Port <= 0 {
 			continue
 		}
@@ -56,6 +57,28 @@ func syncProxyRoutes() error {
 			record.App,
 		)
 
+		hostname := publicHostnameForApp(record.App)
+		if record.Strategy == deploymentStrategyFullstackViteNode {
+			localRoutes, publicRoutes, err :=
+				fullstackProxyRouteFragments(
+					record,
+					publicIndex,
+					hostname,
+				)
+			if err != nil {
+				return fmt.Errorf(
+					"prepare full-stack proxy for %s: %w",
+					record.App,
+					err,
+				)
+			}
+			localConfig.WriteString(localRoutes)
+			publicConfig.WriteString(publicRoutes)
+
+			publicIndex++
+			continue
+		}
+
 		fmt.Fprintf(
 			&localConfig,
 			"handle_path /%s/* {\n"+
@@ -67,7 +90,6 @@ func syncProxyRoutes() error {
 
 		// Public hostname routing:
 		// https://<app>.reactorlab.dev/
-		hostname := publicHostnameForApp(record.App)
 		if hostname == "" {
 			continue
 		}
@@ -119,6 +141,75 @@ func syncProxyRoutes() error {
 	}
 
 	return nil
+}
+
+func fullstackProxyServices(
+	record DeploymentRecord,
+) (DeploymentServiceRecord, DeploymentServiceRecord, error) {
+	if err := validateFullstackServiceMetadata(record.Services); err != nil {
+		return DeploymentServiceRecord{}, DeploymentServiceRecord{}, err
+	}
+	frontend, _ := deploymentServiceByName(record, fullstackFrontendService)
+	backend, _ := deploymentServiceByName(record, fullstackBackendService)
+	if frontend.Port <= 0 || backend.Port <= 0 {
+		return DeploymentServiceRecord{}, DeploymentServiceRecord{},
+			fmt.Errorf("full-stack service ports are unavailable")
+	}
+	return frontend, backend, nil
+}
+
+func fullstackProxyRouteFragments(
+	record DeploymentRecord,
+	index int,
+	hostname string,
+) (string, string, error) {
+	frontend, backend, err := fullstackProxyServices(record)
+	if err != nil {
+		return "", "", err
+	}
+
+	localRoutes := fmt.Sprintf(
+		"handle_path /%s/* {\n"+
+			"\t@local_api_%d path /api /api/*\n"+
+			"\thandle @local_api_%d {\n"+
+			"\t\treverse_proxy 127.0.0.1:%d\n"+
+			"\t}\n"+
+			"\thandle {\n"+
+			"\t\treverse_proxy 127.0.0.1:%d\n"+
+			"\t}\n"+
+			"}\n\n",
+		record.App,
+		index,
+		index,
+		backend.Port,
+		frontend.Port,
+	)
+
+	if hostname == "" {
+		return localRoutes, "", nil
+	}
+	publicRoutes := fmt.Sprintf(
+		"@public_api_%d {\n"+
+			"\thost %s\n"+
+			"\tpath /api /api/*\n"+
+			"}\n"+
+			"handle @public_api_%d {\n"+
+			"\treverse_proxy 127.0.0.1:%d\n"+
+			"}\n\n"+
+			"@public_app_%d host %s\n"+
+			"handle @public_app_%d {\n"+
+			"\treverse_proxy 127.0.0.1:%d\n"+
+			"}\n\n",
+		index,
+		hostname,
+		index,
+		backend.Port,
+		index,
+		hostname,
+		index,
+		frontend.Port,
+	)
+	return localRoutes, publicRoutes, nil
 }
 
 func writeProxyRoutes(

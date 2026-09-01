@@ -10,17 +10,18 @@ import (
 )
 
 type DeploymentVersion struct {
-	App                string    `json:"app"`
-	RepoURL            string    `json:"repoUrl"`
-	Container          string    `json:"container"`
-	Image              string    `json:"image"`
-	Port               int       `json:"port"`
-	ContainerPort      int       `json:"containerPort"`
-	HealthPath         string    `json:"healthPath"`
-	Strategy           string    `json:"strategy,omitempty"`
-	PackageManager     string    `json:"packageManager,omitempty"`
-	PackageInstallMode string    `json:"packageInstallMode,omitempty"`
-	DeployedAt         time.Time `json:"deployedAt"`
+	App                string                    `json:"app"`
+	RepoURL            string                    `json:"repoUrl"`
+	Container          string                    `json:"container"`
+	Image              string                    `json:"image"`
+	Port               int                       `json:"port"`
+	ContainerPort      int                       `json:"containerPort"`
+	HealthPath         string                    `json:"healthPath"`
+	Strategy           string                    `json:"strategy,omitempty"`
+	PackageManager     string                    `json:"packageManager,omitempty"`
+	PackageInstallMode string                    `json:"packageInstallMode,omitempty"`
+	Services           []DeploymentServiceRecord `json:"services,omitempty"`
+	DeployedAt         time.Time                 `json:"deployedAt"`
 }
 
 func deploymentVersion(record DeploymentRecord) DeploymentVersion {
@@ -37,6 +38,7 @@ func deploymentVersion(record DeploymentRecord) DeploymentVersion {
 		Strategy:           record.Strategy,
 		PackageManager:     record.PackageManager,
 		PackageInstallMode: record.PackageInstallMode,
+		Services:           cloneDeploymentServices(record.Services),
 		DeployedAt:         time.Now().UTC(),
 	}
 }
@@ -54,6 +56,7 @@ func (v DeploymentVersion) Record() DeploymentRecord {
 			Strategy:           v.Strategy,
 			PackageManager:     v.PackageManager,
 			PackageInstallMode: v.PackageInstallMode,
+			Services:           cloneDeploymentServices(v.Services),
 		},
 	)
 }
@@ -86,6 +89,12 @@ func (v DeploymentVersion) RecordWithFallback(
 
 	if v.PackageInstallMode == "" {
 		record.PackageInstallMode = fallback.PackageInstallMode
+	}
+
+	if len(v.Services) == 0 &&
+		fallback.Strategy == deploymentStrategyFullstackViteNode {
+
+		record.Services = cloneDeploymentServices(fallback.Services)
 	}
 
 	return normalizeDeploymentRecord(record)

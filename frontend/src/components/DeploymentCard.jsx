@@ -23,6 +23,11 @@ export default function DeploymentCard({
 }) {
   const url = publicUrl(deployment.app)
   const running = deployment.status === 'running'
+  const environmentVariables = Array.isArray(
+    deployment.environmentVariables,
+  )
+    ? deployment.environmentVariables
+    : []
 
   return (
     <article className="deployment-card">
@@ -75,6 +80,18 @@ export default function DeploymentCard({
           </strong>
         </div>
       </div>
+
+      {environmentVariables.length > 0 && (
+        <div className="environment-summary">
+          <span className="meta-label">RUNTIME ENVIRONMENT</span>
+          <div>
+            {environmentVariables.map((name) => (
+              <code key={name}>{name}</code>
+            ))}
+          </div>
+          <small>Values are stored securely and are not displayed.</small>
+        </div>
+      )}
 
       <div className="actions">
         <a

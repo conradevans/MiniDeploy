@@ -64,9 +64,10 @@ export default function AdminDashboard({ apiMode }) {
 
     try {
       const result = await api.deployApplication(config)
-      const strategy = result.strategy === 'vite-static'
-        ? 'React + Vite'
-        : 'Dockerfile'
+      const strategy = {
+        'vite-static': 'React + Vite',
+        'node-express': 'Node + Express',
+      }[result.strategy] || 'Dockerfile'
 
       setNotice(
         `${result.app} deployed successfully using ${strategy} ` +

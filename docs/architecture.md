@@ -187,8 +187,8 @@ The landing page, Guest Mode, and guest API remain public. The legacy management
 
 ## Deployment Flow
 
-A new deployment normally requires only `repoUrl`; optional port and health
-values remain available for advanced Dockerfile deployments.
+A new deployment normally requires only `repoUrl`; optional port, health, and
+runtime environment values remain available through advanced Admin settings.
 
 ```text
 Deploy request
@@ -224,6 +224,17 @@ Inspect repository
              |   npm ci with package-lock.json
              |   npm install without a lockfile
              |   container port 80
+             |   health path /
+             |
+             +-- conventional JavaScript npm project
+             |   + nonempty scripts.start
+             |   + Express runtime dependency
+             |          |
+             |          v
+             |   node-express strategy
+             |   npm ci/install
+             |   npm start
+             |   PORT=3000 by default
              |   health path /
              |
              +-- unsupported
@@ -267,6 +278,11 @@ placing runtime-specific logic in the deployment orchestrator. The Vite
 detector reads `package.json` and known `vite.config.*` filenames; it does not
 execute repository configuration merely to classify the project.
 
+The `node-express` detector runs after Vite and requires npm, a nonempty start
+script, and Express in runtime dependencies. It deliberately rejects
+TypeScript indicators, Next.js, NestJS, Fastify, Koa, Bun, Deno, pnpm, and yarn.
+The same boundary is revalidated when the persisted strategy is reused.
+
 For `vite-static`, MiniDeploy writes a temporary generated Dockerfile outside
 the cloned repository and uses the repository only as the Docker build context.
 The build uses:
@@ -283,6 +299,13 @@ Forcing the root base makes repositories with a development subpath suitable
 for their generated ReactorLab hostname. The nginx runtime serves `dist/` on
 container port 80 and falls back to `index.html` for unknown paths so client-side
 SPA routes can load directly. Generated files never modify the Git worktree.
+
+For `node-express`, MiniDeploy generates a fixed Node 24 Alpine Dockerfile in
+the same service-owned temporary build area. It uses `npm ci` with a valid
+`package-lock.json`, otherwise `npm install`, copies the application, and runs
+`npm start`. No repository string becomes a Dockerfile instruction. MiniDeploy
+injects `PORT` at runtime (3000 unless explicitly overridden), and the service
+must honor `process.env.PORT`.
 
 ## Zero-Downtime Redeployment
 
@@ -494,6 +517,13 @@ repository. Repository build scripts still execute code during image builds, so
 the operator trust boundary remains reviewed repositories rather than arbitrary
 multi-tenant input.
 
+Runtime environment values are never supplied to Docker builds. At container
+start, MiniDeploy writes the effective application environment to a temporary
+mode-`0600` env-file, passes only that path to `docker run --env-file`, and
+removes the temporary file when Docker returns. Node/Express containers also
+receive the MiniDeploy-managed `PORT` value. Host publication remains bound to
+`127.0.0.1`.
+
 ## HTTP Security
 
 The MiniDeploy HTTP middleware applies protections including:
@@ -532,6 +562,32 @@ MINIDEPLOY_GITHUB_WEBHOOK_SECRET
 The environment file and any backup containing secret material must remain owned by `root:root` with mode `0600`. Values are never stored in the repository, frontend bundle, generated Caddy routes, deployment metadata, or documentation.
 
 Access JWTs and Cloudflare session cookies are request credentials. MiniDeploy validates the assertion in memory and does not persist either credential.
+
+Application runtime values use a separate store:
+
+```text
+/srv/minideploy/data/secrets/<app>.env
+```
+
+The containing directory is mode `0700`; each atomically replaced application
+file is mode `0600`. Application names pass the normal validation and strict
+child-path containment checks before read, replacement, or deletion. Values
+cannot contain NUL or newlines in Phase 2, and variable names must match
+`[A-Za-z_][A-Za-z0-9_]*`; `PORT` is reserved for MiniDeploy.
+
+Deployment records persist only sorted configured variable names for the Admin
+view. History and Guest DTOs contain no runtime environment metadata. Omitted
+`environment` on redeploy preserves the secure file, while a supplied map is a
+complete replacement. Candidate containers use the staged effective map; the
+secure file changes only after health succeeds and is restored if metadata or
+proxy cutover fails. Webhooks omit the field, restart uses Docker's existing
+container configuration, and rollback loads the current secure map rather than
+historical values. Deletion removes the contained application secret file.
+
+Known values are removed from container log/error output before MiniDeploy
+persists or returns it. The host operator/root/Docker-capable account is trusted
+and can inherently inspect container environments; this boundary does not make
+Docker secrets opaque to host administrators.
 
 ## systemd Hardening
 

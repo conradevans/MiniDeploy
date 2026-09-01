@@ -5,9 +5,39 @@ export default function DeployForm({
   busy,
 }) {
   const [repoUrl, setRepoUrl] = useState('')
-  const [containerPort, setContainerPort] = useState('80')
-  const [healthPath, setHealthPath] = useState('/')
+  const [containerPort, setContainerPort] = useState('')
+  const [healthPath, setHealthPath] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [environmentRows, setEnvironmentRows] = useState([])
+
+  function addEnvironmentRow() {
+    setEnvironmentRows((rows) => [
+      ...rows,
+      {
+        name: '',
+        value: '',
+      },
+    ])
+  }
+
+  function updateEnvironmentRow(index, field, value) {
+    setEnvironmentRows((rows) =>
+      rows.map((row, rowIndex) =>
+        rowIndex === index
+          ? {
+            ...row,
+            [field]: value,
+          }
+          : row,
+      ),
+    )
+  }
+
+  function removeEnvironmentRow(index) {
+    setEnvironmentRows((rows) =>
+      rows.filter((_, rowIndex) => rowIndex !== index),
+    )
+  }
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -23,18 +53,31 @@ export default function DeployForm({
     }
 
     if (showAdvanced) {
-      const port = Number(containerPort)
+      const trimmedPort = containerPort.trim()
+      const trimmedHealthPath = healthPath.trim()
 
-      config.containerPort = Number.isFinite(port) ? port : 80
-      config.healthPath = healthPath.trim() || '/'
+      if (trimmedPort) {
+        config.containerPort = Number(trimmedPort)
+      }
+
+      if (trimmedHealthPath) {
+        config.healthPath = trimmedHealthPath
+      }
+
+      if (environmentRows.length > 0) {
+        config.environment = Object.fromEntries(
+          environmentRows.map((row) => [row.name.trim(), row.value]),
+        )
+      }
     }
 
     const success = await onDeploy(config)
 
     if (success) {
       setRepoUrl('')
-      setContainerPort('80')
-      setHealthPath('/')
+      setContainerPort('')
+      setHealthPath('')
+      setEnvironmentRows([])
       setShowAdvanced(false)
     }
   }
@@ -88,33 +131,109 @@ export default function DeployForm({
         disabled={busy}
         aria-expanded={showAdvanced}
       >
-        {showAdvanced ? 'Hide' : 'Show'} advanced Dockerfile settings
+        {showAdvanced ? 'Hide' : 'Show'} advanced deployment settings
       </button>
 
       {showAdvanced && (
-        <div className="advanced-grid">
-          <label className="field">
-            <span>Container port</span>
-            <input
-              type="number"
-              min="1"
-              max="65535"
-              value={containerPort}
-              onChange={(event) => setContainerPort(event.target.value)}
-              disabled={busy}
-            />
-          </label>
+        <div className="advanced-settings">
+          <div className="advanced-grid">
+            <label className="field">
+              <span>Container port</span>
+              <input
+                type="number"
+                min="1"
+                max="65535"
+                value={containerPort}
+                onChange={(event) => setContainerPort(event.target.value)}
+                placeholder="Automatic"
+                disabled={busy}
+              />
+            </label>
 
-          <label className="field">
-            <span>Health path</span>
-            <input
-              type="text"
-              value={healthPath}
-              onChange={(event) => setHealthPath(event.target.value)}
-              placeholder="/health"
-              disabled={busy}
-            />
-          </label>
+            <label className="field">
+              <span>Health path</span>
+              <input
+                type="text"
+                value={healthPath}
+                onChange={(event) => setHealthPath(event.target.value)}
+                placeholder="/health"
+                disabled={busy}
+              />
+            </label>
+          </div>
+
+          <div className="environment-editor">
+            <div className="environment-heading">
+              <div>
+                <strong>Runtime environment variables</strong>
+                <p>
+                  Values such as MONGODB_URI are stored securely and are
+                  never shown again after deployment.
+                </p>
+              </div>
+
+              <button
+                className="button secondary compact"
+                type="button"
+                onClick={addEnvironmentRow}
+                disabled={busy}
+              >
+                Add variable
+              </button>
+            </div>
+
+            {environmentRows.map((row, index) => (
+              <div className="environment-row" key={index}>
+                <label className="field">
+                  <span>Environment variable name {index + 1}</span>
+                  <input
+                    type="text"
+                    value={row.name}
+                    onChange={(event) =>
+                      updateEnvironmentRow(
+                        index,
+                        'name',
+                        event.target.value,
+                      )
+                    }
+                    placeholder="MONGODB_URI"
+                    disabled={busy}
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    required
+                  />
+                </label>
+
+                <label className="field">
+                  <span>Environment variable value {index + 1}</span>
+                  <input
+                    type="password"
+                    value={row.value}
+                    onChange={(event) =>
+                      updateEnvironmentRow(
+                        index,
+                        'value',
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Sensitive value"
+                    disabled={busy}
+                    autoComplete="new-password"
+                  />
+                </label>
+
+                <button
+                  className="button secondary environment-remove"
+                  type="button"
+                  onClick={() => removeEnvironmentRow(index)}
+                  disabled={busy}
+                  aria-label={`Remove environment variable ${index + 1}`}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </form>

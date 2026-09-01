@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -27,21 +28,57 @@ func startManagedContainerWithPort(
 	hostPort int,
 	containerPort int,
 ) error {
+	return startManagedDeploymentContainer(
+		containerName,
+		containerName,
+		imageName,
+		hostPort,
+		containerPort,
+		deploymentStrategyDockerfile,
+		nil,
+	)
+}
+
+func startManagedDeploymentContainer(
+	app string,
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+	strategy string,
+	environment map[string]string,
+) error {
+	dockerEnvironment := dockerRuntimeEnvironment(
+		strategy,
+		containerPort,
+		environment,
+	)
+
+	envFile, cleanup, err :=
+		runtimeEnvironmentStore.TemporaryDockerEnvFile(
+			app,
+			dockerEnvironment,
+		)
+	if err != nil {
+		return fmt.Errorf(
+			"prepare Docker runtime environment: %w",
+			err,
+		)
+	}
+	defer cleanup()
+
+	args := managedContainerRunArguments(
+		containerName,
+		imageName,
+		hostPort,
+		containerPort,
+		envFile,
+	)
+
 	output, err := runCommand(
 		"",
 		"docker",
-		"run",
-		"-d",
-		"--restart",
-		"unless-stopped",
-		"--name",
-		containerName,
-		"-p",
-		managedPortBinding(
-			hostPort,
-			containerPort,
-		),
-		imageName,
+		args...,
 	)
 	if err != nil {
 		log.Printf(
@@ -56,6 +93,56 @@ func startManagedContainerWithPort(
 	return nil
 }
 
+func dockerRuntimeEnvironment(
+	strategy string,
+	containerPort int,
+	environment map[string]string,
+) map[string]string {
+	dockerEnvironment := cloneRuntimeEnvironment(
+		environment,
+	)
+
+	if strategy == deploymentStrategyNodeExpress {
+		dockerEnvironment["PORT"] = strconv.Itoa(
+			containerPort,
+		)
+	}
+
+	return dockerEnvironment
+}
+
+func managedContainerRunArguments(
+	containerName string,
+	imageName string,
+	hostPort int,
+	containerPort int,
+	envFile string,
+) []string {
+	args := []string{
+		"run",
+		"-d",
+		"--restart",
+		"unless-stopped",
+		"--name",
+		containerName,
+		"-p",
+		managedPortBinding(
+			hostPort,
+			containerPort,
+		),
+	}
+
+	if envFile != "" {
+		args = append(
+			args,
+			"--env-file",
+			envFile,
+		)
+	}
+
+	return append(args, imageName)
+}
+
 func managedPortBinding(
 	hostPort int,
 	containerPort int,
@@ -67,11 +154,19 @@ func managedPortBinding(
 	)
 }
 
+func restartContainerArguments(containerName string) []string {
+	return []string{
+		"restart",
+		containerName,
+	}
+}
+
 func containerLogs(
 	containerName string,
 	tail int,
+	environment map[string]string,
 ) (string, error) {
-	return runCommand(
+	output, err := runCommand(
 		"",
 		"docker",
 		"logs",
@@ -79,6 +174,11 @@ func containerLogs(
 		fmt.Sprintf("%d", tail),
 		containerName,
 	)
+
+	return redactRuntimeEnvironmentValues(
+		output,
+		environment,
+	), err
 }
 
 func containerExists(

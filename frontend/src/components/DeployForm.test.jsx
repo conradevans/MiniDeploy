@@ -42,7 +42,7 @@ describe('DeployForm', () => {
 
     fireEvent.click(
       screen.getByRole('button', {
-        name: 'Show advanced Dockerfile settings',
+        name: 'Show advanced deployment settings',
       }),
     )
 
@@ -67,5 +67,72 @@ describe('DeployForm', () => {
         healthPath: '/health',
       })
     })
+  })
+
+  test('adds, removes, masks, submits, and clears runtime variables', async () => {
+    const onDeploy = vi.fn(async () => true)
+
+    render(<DeployForm onDeploy={onDeploy} busy={false} />)
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show advanced deployment settings',
+      }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Add variable' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add variable' }))
+
+    const firstValue = screen.getByLabelText('Environment variable value 1')
+    expect(firstValue.getAttribute('type')).toBe('password')
+
+    fireEvent.change(screen.getByLabelText('Environment variable name 1'), {
+      target: { value: 'MONGODB_URI' },
+    })
+    fireEvent.change(firstValue, {
+      target: { value: 'mongodb://example.invalid/app' },
+    })
+
+    fireEvent.change(screen.getByLabelText('Environment variable name 2'), {
+      target: { value: 'REMOVE_ME' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Remove environment variable 2',
+      }),
+    )
+
+    expect(screen.queryByLabelText('Environment variable name 2')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Git repository'), {
+      target: {
+        value: 'https://github.com/example/express-app.git',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+
+    await waitFor(() => {
+      expect(onDeploy).toHaveBeenCalledWith({
+        repoUrl: 'https://github.com/example/express-app.git',
+        environment: {
+          MONGODB_URI: 'mongodb://example.invalid/app',
+        },
+      })
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', {
+          name: 'Show advanced deployment settings',
+        }),
+      ).not.toBeNull()
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show advanced deployment settings',
+      }),
+    )
+
+    expect(screen.queryByLabelText('Environment variable name 1')).toBeNull()
   })
 })

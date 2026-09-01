@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 const (
-	deploymentStrategyDockerfile = "dockerfile"
-	deploymentStrategyViteStatic = "vite-static"
+	deploymentStrategyDockerfile  = "dockerfile"
+	deploymentStrategyViteStatic  = "vite-static"
+	deploymentStrategyNodeExpress = "node-express"
 
 	packageManagerNPM       = "npm"
 	packageInstallModeCI    = "ci"
@@ -46,6 +48,7 @@ type deploymentStrategyDetector interface {
 var deploymentStrategyDetectors = []deploymentStrategyDetector{
 	dockerfileStrategyDetector{},
 	viteStaticStrategyDetector{},
+	nodeExpressStrategyDetector{},
 }
 
 type dockerfileStrategyDetector struct{}
@@ -94,6 +97,8 @@ type nodePackageManifest struct {
 	Scripts         map[string]string `json:"scripts"`
 	Dependencies    map[string]string `json:"dependencies"`
 	DevDependencies map[string]string `json:"devDependencies"`
+	PackageManager  string            `json:"packageManager"`
+	Workspaces      json.RawMessage   `json:"workspaces"`
 }
 
 type npmPackageLock struct {
@@ -188,6 +193,274 @@ func classifyViteCommand(command string) (bool, bool) {
 	}
 
 	return false, false
+}
+
+type nodeExpressStrategyDetector struct{}
+
+var directNodeStartScriptPattern = regexp.MustCompile(
+	`^node[ \t]+(\./)?[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.(js|cjs|mjs)$`,
+)
+
+var unsupportedNodeExpressDependencies = []string{
+	"vite",
+	"next",
+	"@nestjs/core",
+	"fastify",
+	"koa",
+	"typescript",
+	"ts-node",
+	"tsx",
+}
+
+func (nodeExpressStrategyDetector) Detect(
+	repositoryPath string,
+	requested deploymentConfig,
+) (deploymentBuildPlan, bool, error) {
+	manifest, found, err := readNodePackageManifest(
+		repositoryPath,
+	)
+	if err != nil || !found {
+		return deploymentBuildPlan{}, false, err
+	}
+
+	conventionalJavaScript, err :=
+		repositoryIsConventionalJavaScriptExpress(
+			repositoryPath,
+			manifest,
+		)
+	if err != nil {
+		return deploymentBuildPlan{}, false, err
+	}
+
+	if !conventionalJavaScript {
+		return deploymentBuildPlan{}, false, nil
+	}
+
+	expressVersion, hasExpress := manifest.Dependencies["express"]
+	if !hasExpress || strings.TrimSpace(expressVersion) == "" {
+		return deploymentBuildPlan{}, false, nil
+	}
+
+	supportedEntrypoint, err := repositoryHasSupportedNodeEntrypoint(
+		repositoryPath,
+		manifest.Scripts["start"],
+	)
+	if err != nil {
+		return deploymentBuildPlan{}, false, err
+	}
+
+	if !supportedEntrypoint {
+		return deploymentBuildPlan{}, false, nil
+	}
+
+	usesNPM, err := repositoryUsesNPM(
+		repositoryPath,
+		manifest,
+	)
+	if err != nil {
+		return deploymentBuildPlan{}, false, err
+	}
+
+	if !usesNPM {
+		return deploymentBuildPlan{}, false, nil
+	}
+
+	installMode, err := npmInstallMode(repositoryPath)
+	if err != nil {
+		return deploymentBuildPlan{}, false, err
+	}
+
+	containerPort := requested.ContainerPort
+	if containerPort == 0 {
+		containerPort = defaultNodeContainerPort
+	}
+
+	healthPath := normalizedHealthPath(
+		requested.HealthPath,
+	)
+
+	return nodeExpressBuildPlan(
+		installMode,
+		containerPort,
+		healthPath,
+	), true, nil
+}
+
+// repositoryHasSupportedNodeEntrypoint deliberately accepts only the
+// Phase 2 start-script shape "node <relative JavaScript file>". It is
+// not a general shell-command parser.
+func repositoryHasSupportedNodeEntrypoint(
+	repositoryPath string,
+	startScript string,
+) (bool, error) {
+	command := strings.TrimSpace(startScript)
+	if !directNodeStartScriptPattern.MatchString(command) {
+		return false, nil
+	}
+
+	entrypoint := strings.TrimLeft(
+		strings.TrimPrefix(command, "node"),
+		" \t",
+	)
+	if filepath.IsAbs(entrypoint) {
+		return false, nil
+	}
+
+	entrypoint = strings.TrimPrefix(entrypoint, "./")
+	for _, segment := range strings.Split(entrypoint, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false, nil
+		}
+	}
+
+	cleanRoot, err := filepath.Abs(filepath.Clean(repositoryPath))
+	if err != nil {
+		return false, fmt.Errorf("resolve repository root: %w", err)
+	}
+
+	entrypointPath, err := strictChildPath(
+		cleanRoot,
+		filepath.Join(cleanRoot, filepath.FromSlash(entrypoint)),
+	)
+	if err != nil {
+		return false, nil
+	}
+
+	resolvedRoot, err := filepath.EvalSymlinks(cleanRoot)
+	if err != nil {
+		return false, fmt.Errorf("resolve repository root symlinks: %w", err)
+	}
+
+	resolvedEntrypoint, err := filepath.EvalSymlinks(entrypointPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("resolve Node entrypoint symlinks: %w", err)
+	}
+
+	resolvedEntrypoint, err = strictChildPath(
+		resolvedRoot,
+		resolvedEntrypoint,
+	)
+	if err != nil {
+		return false, nil
+	}
+
+	info, err := os.Stat(resolvedEntrypoint)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("inspect Node entrypoint: %w", err)
+	}
+
+	return info.Mode().IsRegular(), nil
+}
+
+func repositoryIsConventionalJavaScriptExpress(
+	repositoryPath string,
+	manifest nodePackageManifest,
+) (bool, error) {
+	workspaces := strings.TrimSpace(string(manifest.Workspaces))
+	if workspaces != "" && workspaces != "null" {
+		return false, nil
+	}
+
+	for _, name := range unsupportedNodeExpressDependencies {
+		if hasNodeDependency(manifest, name) {
+			return false, nil
+		}
+	}
+
+	hasViteConfiguration, err := repositoryHasViteConfig(
+		repositoryPath,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if hasViteConfiguration {
+		return false, nil
+	}
+
+	for _, field := range strings.Fields(
+		strings.ToLower(manifest.Scripts["start"]),
+	) {
+		field = strings.Trim(field, "'\"")
+		if field == "deno" {
+			return false, nil
+		}
+
+		if strings.HasSuffix(field, ".ts") ||
+			strings.HasSuffix(field, ".mts") ||
+			strings.HasSuffix(field, ".cts") {
+
+			return false, nil
+		}
+	}
+
+	for _, name := range []string{
+		"tsconfig.json",
+		"deno.json",
+		"deno.jsonc",
+	} {
+		info, err := os.Stat(filepath.Join(repositoryPath, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		if err != nil {
+			return false, fmt.Errorf("inspect %s: %w", name, err)
+		}
+
+		if info.Mode().IsRegular() {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+func repositoryUsesNPM(
+	repositoryPath string,
+	manifest nodePackageManifest,
+) (bool, error) {
+	packageManager := strings.TrimSpace(
+		manifest.PackageManager,
+	)
+	if packageManager != "" &&
+		packageManager != "npm" &&
+		!strings.HasPrefix(packageManager, "npm@") {
+
+		return false, nil
+	}
+
+	for _, name := range []string{
+		"yarn.lock",
+		"pnpm-lock.yaml",
+		"bun.lock",
+		"bun.lockb",
+	} {
+		_, err := os.Stat(filepath.Join(repositoryPath, name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+
+		if err != nil {
+			return false, fmt.Errorf(
+				"inspect %s: %w",
+				name,
+				err,
+			)
+		}
+
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func detectDeploymentStrategy(
@@ -289,6 +562,99 @@ func deploymentStrategyForRecord(
 		return viteStaticBuildPlan(
 			record.PackageInstallMode,
 			appendBuildSubcommand,
+		), nil
+
+	case deploymentStrategyNodeExpress:
+		if record.PackageManager != packageManagerNPM {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"unsupported persisted package manager %q",
+				record.PackageManager,
+			)
+		}
+
+		manifest, found, err := readNodePackageManifest(
+			repositoryPath,
+		)
+		if err != nil {
+			return deploymentBuildPlan{}, err
+		} else if !found {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"persisted Node/Express strategy requires package.json",
+			)
+		}
+
+		conventionalJavaScript, err :=
+			repositoryIsConventionalJavaScriptExpress(
+				repositoryPath,
+				manifest,
+			)
+		if err != nil {
+			return deploymentBuildPlan{}, err
+		}
+
+		if !conventionalJavaScript {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"persisted Node/Express strategy requires a conventional JavaScript Express repository",
+			)
+		}
+
+		expressVersion, hasExpress := manifest.Dependencies["express"]
+		if !hasExpress || strings.TrimSpace(expressVersion) == "" {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"persisted Node/Express strategy requires express as a runtime dependency",
+			)
+		}
+
+		supportedEntrypoint, err := repositoryHasSupportedNodeEntrypoint(
+			repositoryPath,
+			manifest.Scripts["start"],
+		)
+		if err != nil {
+			return deploymentBuildPlan{}, err
+		}
+
+		if !supportedEntrypoint {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"persisted Node/Express strategy requires a supported direct Node entrypoint",
+			)
+		}
+
+		usesNPM, err := repositoryUsesNPM(
+			repositoryPath,
+			manifest,
+		)
+		if err != nil {
+			return deploymentBuildPlan{}, err
+		}
+
+		if !usesNPM {
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"persisted Node/Express strategy requires npm",
+			)
+		}
+
+		if record.PackageInstallMode == packageInstallModeCI {
+			if _, err := validatedPackageLock(repositoryPath); err != nil {
+				return deploymentBuildPlan{}, fmt.Errorf(
+					"persisted npm ci strategy: %w",
+					err,
+				)
+			}
+		}
+
+		if record.PackageInstallMode != packageInstallModeCI &&
+			record.PackageInstallMode != packageInstallModeSetup {
+
+			return deploymentBuildPlan{}, fmt.Errorf(
+				"unsupported persisted npm install mode %q",
+				record.PackageInstallMode,
+			)
+		}
+
+		return nodeExpressBuildPlan(
+			record.PackageInstallMode,
+			record.ContainerPort,
+			record.HealthPath,
 		), nil
 
 	default:
@@ -493,6 +859,46 @@ EXPOSE 80
 `, installCommand, buildCommand)
 }
 
+func nodeExpressBuildPlan(
+	installMode string,
+	containerPort int,
+	healthPath string,
+) deploymentBuildPlan {
+	return deploymentBuildPlan{
+		Strategy:           deploymentStrategyNodeExpress,
+		PackageManager:     packageManagerNPM,
+		PackageInstallMode: installMode,
+		ContainerPort:      containerPort,
+		HealthPath:         healthPath,
+		GeneratedDockerfile: generatedNodeExpressDockerfile(
+			installMode,
+			containerPort,
+		),
+	}
+}
+
+func generatedNodeExpressDockerfile(
+	installMode string,
+	containerPort int,
+) string {
+	installCommand := "npm install --no-audit --no-fund"
+	if installMode == packageInstallModeCI {
+		installCommand = "npm ci --no-audit --no-fund"
+	}
+
+	return fmt.Sprintf(`# syntax=docker/dockerfile:1
+FROM node:24-alpine
+
+WORKDIR /app
+COPY package*.json ./
+RUN %s
+COPY . .
+
+EXPOSE %d
+CMD ["npm", "start"]
+`, installCommand, containerPort)
+}
+
 func buildDeploymentImage(
 	repositoryPath string,
 	imageName string,
@@ -591,6 +997,29 @@ func describeDeploymentPlan(
 		deploymentEvent(
 			app,
 			"Packaging static runtime with SPA fallback...",
+		)
+
+	case deploymentStrategyNodeExpress:
+		deploymentEvent(
+			app,
+			"Detected conventional JavaScript Node/Express service.",
+		)
+
+		if plan.PackageInstallMode == packageInstallModeCI {
+			deploymentEvent(
+				app,
+				"Installing npm dependencies with npm ci during image build...",
+			)
+		} else {
+			deploymentEvent(
+				app,
+				"Installing npm dependencies with npm install during image build...",
+			)
+		}
+
+		deploymentEvent(
+			app,
+			"Runtime will start with npm start and MiniDeploy-managed PORT.",
 		)
 	}
 }

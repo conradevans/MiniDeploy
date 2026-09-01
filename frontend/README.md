@@ -63,9 +63,10 @@ The MiniDeploy Go server serves this directory in production.
 - Guest deployment status and public application links
 - Cloudflare Access Admin Sign In path
 - authenticated administrator identity display
-- create Dockerfile or zero-config React/Vite deployments
+- create Dockerfile, zero-config React/Vite, or conventional Node/Express deployments
 - deploy a standard Vite repository using only its GitHub URL
-- reveal optional port and health-path controls for advanced Dockerfile use
+- reveal optional port, health-path, and masked runtime-environment controls
+- show configured runtime variable names without returning stored values
 - view deployment status and internal configuration
 - open public application URLs
 - view runtime logs

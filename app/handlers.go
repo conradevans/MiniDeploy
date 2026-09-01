@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -60,17 +62,20 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerPort := normalizedContainerPort(
+	if err := validateRequestedDeploymentConfig(
 		req.ContainerPort,
-	)
-
-	healthPath := normalizedHealthPath(
 		req.HealthPath,
-	)
+	); err != nil {
+		http.Error(
+			w,
+			err.Error(),
+			http.StatusBadRequest,
+		)
+		return
+	}
 
-	if err := validateDeploymentConfig(
-		containerPort,
-		healthPath,
+	if err := validateRuntimeEnvironment(
+		req.Environment,
 	); err != nil {
 		http.Error(
 			w,
@@ -82,8 +87,9 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 
 	record, err := deployRepository(
 		req.RepoURL,
-		containerPort,
-		healthPath,
+		req.ContainerPort,
+		req.HealthPath,
+		req.Environment,
 	)
 
 	if err != nil {
@@ -133,6 +139,27 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func redeployHandler(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeRedeployRequest(r.Body)
+	if err != nil {
+
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Environment != nil {
+		if err := validateRuntimeEnvironment(
+			req.Environment,
+		); err != nil {
+
+			http.Error(
+				w,
+				err.Error(),
+				http.StatusBadRequest,
+			)
+			return
+		}
+	}
+
 	record, err := getDeployment(r.PathValue("app"))
 
 	if errors.Is(err, ErrDeploymentNotFound) {
@@ -149,7 +176,10 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRecord, err := safeRedeploy(record)
+	newRecord, err := safeRedeploy(
+		record,
+		req.Environment,
+	)
 
 	if err != nil {
 		deploymentEvent(
@@ -173,6 +203,45 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, deploymentResponse(newRecord))
+}
+
+func decodeRedeployRequest(reader io.Reader) (RedeployRequest, error) {
+	var raw struct {
+		Environment json.RawMessage `json:"environment"`
+	}
+
+	if err := json.NewDecoder(reader).Decode(&raw); err != nil {
+		if errors.Is(err, io.EOF) {
+			return RedeployRequest{}, nil
+		}
+
+		return RedeployRequest{}, err
+	}
+
+	if len(raw.Environment) == 0 {
+		return RedeployRequest{}, nil
+	}
+
+	if bytes.Equal(
+		bytes.TrimSpace(raw.Environment),
+		[]byte("null"),
+	) {
+		return RedeployRequest{}, fmt.Errorf(
+			"environment must be an object when supplied",
+		)
+	}
+
+	var environment map[string]string
+	if err := json.Unmarshal(
+		raw.Environment,
+		&environment,
+	); err != nil {
+		return RedeployRequest{}, err
+	}
+
+	return RedeployRequest{
+		Environment: environment,
+	}, nil
 }
 
 func deploymentHistoryHandler(
@@ -369,9 +438,46 @@ func logsHandler(
 		return
 	}
 
+	environment, err := runtimeEnvironmentStore.Load(
+		record.App,
+	)
+	if err != nil {
+		log.Printf(
+			"failed to load runtime environment for log redaction on %s: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to retrieve logs",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := verifyRuntimeEnvironmentMetadata(
+		record,
+		environment,
+	); err != nil {
+		log.Printf(
+			"refusing runtime logs for %s because secure environment metadata is inconsistent: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to retrieve logs",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	output, err := containerLogs(
 		record.Container,
 		200,
+		environment,
 	)
 
 	if err != nil {
@@ -493,8 +599,7 @@ func restartDeploymentHandler(
 	output, err := runCommand(
 		"",
 		"docker",
-		"restart",
-		record.Container,
+		restartContainerArguments(record.Container)...,
 	)
 
 	if err != nil {
@@ -562,6 +667,22 @@ func deleteDeploymentHandler(
 		http.Error(
 			w,
 			"invalid deployment source path",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if _, err := runtimeEnvironmentStore.path(
+		record.App,
+	); err != nil {
+		log.Printf(
+			"refusing unsafe runtime environment path for %s: %v",
+			record.App,
+			err,
+		)
+		http.Error(
+			w,
+			"invalid runtime environment path",
 			http.StatusInternalServerError,
 		)
 		return
@@ -665,6 +786,23 @@ func deleteDeploymentHandler(
 		}
 	}
 
+	if err := runtimeEnvironmentStore.Delete(
+		record.App,
+	); err != nil {
+		log.Printf(
+			"failed to remove runtime environment for %s: %v",
+			record.App,
+			err,
+		)
+
+		http.Error(
+			w,
+			"failed to remove runtime environment",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
 	if err := store.Delete(
 		record.App,
 	); err != nil {
@@ -730,16 +868,17 @@ func deploymentResponse(
 	record = normalizeDeploymentRecord(record)
 
 	return DeploymentResponse{
-		App:            record.App,
-		RepoURL:        record.RepoURL,
-		Container:      record.Container,
-		Image:          record.Image,
-		Port:           record.Port,
-		ContainerPort:  record.ContainerPort,
-		HealthPath:     record.HealthPath,
-		Strategy:       record.Strategy,
-		PackageManager: record.PackageManager,
-		Status:         containerStatus(record.Container),
+		App:                  record.App,
+		RepoURL:              record.RepoURL,
+		Container:            record.Container,
+		Image:                record.Image,
+		Port:                 record.Port,
+		ContainerPort:        record.ContainerPort,
+		HealthPath:           record.HealthPath,
+		Strategy:             record.Strategy,
+		PackageManager:       record.PackageManager,
+		EnvironmentVariables: record.EnvironmentVariables,
+		Status:               containerStatus(record.Container),
 	}
 }
 

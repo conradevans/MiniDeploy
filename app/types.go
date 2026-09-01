@@ -16,21 +16,27 @@ type AdminSessionResponse struct {
 }
 
 type DeployRequest struct {
-	RepoURL       string `json:"repoUrl"`
-	ContainerPort int    `json:"containerPort"`
-	HealthPath    string `json:"healthPath"`
+	RepoURL       string            `json:"repoUrl"`
+	ContainerPort int               `json:"containerPort"`
+	HealthPath    string            `json:"healthPath"`
+	Environment   map[string]string `json:"environment"`
+}
+
+type RedeployRequest struct {
+	Environment map[string]string `json:"environment"`
 }
 
 type DeploymentResponse struct {
-	App            string `json:"app"`
-	RepoURL        string `json:"repoUrl"`
-	Container      string `json:"container"`
-	Image          string `json:"image"`
-	Port           int    `json:"port"`
-	ContainerPort  int    `json:"containerPort"`
-	HealthPath     string `json:"healthPath"`
-	Strategy       string `json:"strategy"`
-	PackageManager string `json:"packageManager,omitempty"`
+	App                  string   `json:"app"`
+	RepoURL              string   `json:"repoUrl"`
+	Container            string   `json:"container"`
+	Image                string   `json:"image"`
+	Port                 int      `json:"port"`
+	ContainerPort        int      `json:"containerPort"`
+	HealthPath           string   `json:"healthPath"`
+	Strategy             string   `json:"strategy"`
+	PackageManager       string   `json:"packageManager,omitempty"`
+	EnvironmentVariables []string `json:"environmentVariables,omitempty"`
 
 	Status string `json:"status"`
 }

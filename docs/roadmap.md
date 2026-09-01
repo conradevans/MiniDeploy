@@ -22,6 +22,9 @@
 - [x] Persist deployment metadata
 - [x] Detect Dockerfile and zero-config React/Vite deployment strategies
 - [x] Package Vite production bundles in a generated static runtime
+- [x] Detect conventional JavaScript Node/Express services conservatively
+- [x] Package Node/Express services in a generated npm runtime
+- [x] Persist runtime environment values separately with explicit lifecycle semantics
 - [x] Persist deployment strategy for redeploy, webhook, history, and rollback
 - [x] Restart applications
 - [x] Delete applications
@@ -73,7 +76,9 @@
 - [x] React/Vite dashboard
 - [x] Deploy applications
 - [x] Deploy standard React/Vite repositories from only a repository URL
+- [x] Deploy conventional Node/Express repositories from only a repository URL
 - [x] Keep Dockerfile port and health settings behind advanced controls
+- [x] Add masked runtime environment variable controls and names-only status
 - [x] View application status
 - [x] View public URLs
 - [x] Runtime logs
@@ -105,6 +110,8 @@
 - [x] Reject plain identity-header spoofing
 - [x] Serialize guest data through a dedicated allowlisted response type
 - [x] Keep guest mutations, logs, and history unavailable
+- [x] Keep runtime environment names and values out of Guest Mode and history
+- [x] Inject runtime values with temporary Docker env-files
 
 ### Testing
 

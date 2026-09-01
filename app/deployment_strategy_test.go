@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -503,7 +504,7 @@ func TestStrategyPersistsInDeploymentAndHistory(t *testing.T) {
 		t.Fatalf("Get() error: %v", err)
 	}
 
-	if stored != record {
+	if !reflect.DeepEqual(stored, record) {
 		t.Fatalf("stored record = %#v; want %#v", stored, record)
 	}
 
@@ -526,6 +527,10 @@ func TestWebhookSelectionPreservesDeploymentStrategy(t *testing.T) {
 		PackageInstallMode: packageInstallModeCI,
 		ContainerPort:      80,
 		HealthPath:         "/",
+		EnvironmentVariables: []string{
+			"JWT_SECRET",
+			"MONGODB_URI",
+		},
 	}
 
 	got, found := deploymentForWebhook(
@@ -537,9 +542,7 @@ func TestWebhookSelectionPreservesDeploymentStrategy(t *testing.T) {
 		t.Fatal("webhook deployment was not found")
 	}
 
-	if got.Strategy != want.Strategy ||
-		got.PackageManager != want.PackageManager ||
-		got.PackageInstallMode != want.PackageInstallMode {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("webhook strategy = %#v; want %#v", got, want)
 	}
 }

@@ -38,17 +38,34 @@ export function createAdminApi(mode, requester = request) {
       return requester(deploymentsPath)
     },
 
-    deployApplication({ repoUrl, containerPort, healthPath }) {
+    deployApplication({
+      repoUrl,
+      containerPort,
+      healthPath,
+      environment,
+    }) {
+      const payload = {
+        repoUrl,
+      }
+
+      if (containerPort !== undefined) {
+        payload.containerPort = containerPort
+      }
+
+      if (healthPath !== undefined) {
+        payload.healthPath = healthPath
+      }
+
+      if (environment !== undefined) {
+        payload.environment = environment
+      }
+
       return requester(`${base}/deploy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          repoUrl,
-          containerPort,
-          healthPath,
-        }),
+        body: JSON.stringify(payload),
       })
     },
 
@@ -70,10 +87,24 @@ export function createAdminApi(mode, requester = request) {
       })
     },
 
-    redeployApplication(app) {
-      return requester(deploymentPath(app, '/redeploy'), {
+    redeployApplication(app, options = {}) {
+      const requestOptions = {
         method: 'POST',
-      })
+      }
+
+      if (Object.hasOwn(options, 'environment')) {
+        requestOptions.headers = {
+          'Content-Type': 'application/json',
+        }
+        requestOptions.body = JSON.stringify({
+          environment: options.environment,
+        })
+      }
+
+      return requester(
+        deploymentPath(app, '/redeploy'),
+        requestOptions,
+      )
     },
 
     rollbackApplication(app) {

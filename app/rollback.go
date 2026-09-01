@@ -23,11 +23,34 @@ func restorePreviousContainer(
 		)
 	}
 
-	if err := startManagedContainerWithPort(
+	environment, err := runtimeEnvironmentStore.Load(
+		record.App,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"load current runtime environment: %w",
+			err,
+		)
+	}
+
+	if err := verifyRuntimeEnvironmentMetadata(
+		record,
+		environment,
+	); err != nil {
+		return fmt.Errorf(
+			"verify current runtime environment: %w",
+			err,
+		)
+	}
+
+	if err := startManagedDeploymentContainer(
+		record.App,
 		record.Container,
 		record.Image,
 		record.Port,
 		record.ContainerPort,
+		record.Strategy,
+		environment,
 	); err != nil {
 		return err
 	}
@@ -57,6 +80,23 @@ func rollbackDeployment(
 
 	deployMu.Lock()
 	defer deployMu.Unlock()
+
+	environment, err := runtimeEnvironmentStore.Load(
+		current.App,
+	)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"load current runtime environment: %w",
+			err,
+		)
+	}
+
+	if err := verifyRuntimeEnvironmentMetadata(
+		current,
+		environment,
+	); err != nil {
+		return DeploymentRecord{}, err
+	}
 
 	resetDeploymentLog(current.App, "zero-downtime rollback")
 	deploymentEvent(
@@ -132,11 +172,23 @@ func rollbackDeployment(
 		candidatePort,
 	)
 
-	if err := startManagedContainerWithPort(
+	if len(environment) > 0 ||
+		previousRecord.Strategy == deploymentStrategyNodeExpress {
+
+		deploymentEvent(
+			current.App,
+			"Applying current runtime environment to rollback candidate securely...",
+		)
+	}
+
+	if err := startManagedDeploymentContainer(
+		current.App,
 		candidateName,
 		previousRecord.Image,
 		candidatePort,
 		previousRecord.ContainerPort,
+		previousRecord.Strategy,
+		environment,
 	); err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
 			"start rollback candidate: %w",
@@ -160,6 +212,7 @@ func rollbackDeployment(
 		logs, _ := containerLogs(
 			candidateName,
 			100,
+			environment,
 		)
 
 		cleanupCandidate()
@@ -178,6 +231,7 @@ func rollbackDeployment(
 		logs, _ := containerLogs(
 			candidateName,
 			100,
+			environment,
 		)
 
 		cleanupCandidate()
@@ -201,9 +255,12 @@ func rollbackDeployment(
 		"Rollback candidate passed startup and HTTP health checks.",
 	)
 
-	newRecord := previousRecord
-	newRecord.Container = candidateName
-	newRecord.Port = candidatePort
+	newRecord := rollbackCandidateRecord(
+		previousRecord,
+		candidateName,
+		candidatePort,
+		environment,
+	)
 
 	// Make the healthy rollback candidate the desired active deployment.
 	// The current container is deliberately still running.
@@ -328,6 +385,22 @@ func rollbackDeployment(
 	)
 
 	return newRecord, nil
+}
+
+func rollbackCandidateRecord(
+	previous DeploymentRecord,
+	container string,
+	port int,
+	environment map[string]string,
+) DeploymentRecord {
+	record := previous
+	record.Container = container
+	record.Port = port
+	record.EnvironmentVariables = runtimeEnvironmentNames(
+		environment,
+	)
+
+	return record
 }
 
 func removePrunedHistoryImages(

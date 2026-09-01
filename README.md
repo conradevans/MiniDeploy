@@ -64,7 +64,7 @@ If the candidate fails to build or becomes unhealthy, the existing deployment st
 
 MiniDeploy stores previous deployment versions and can restore an earlier Docker image using the same candidate-and-cutover strategy. Deployment history preserves the repository, image, container port, health path, previous host port, and deployment timestamp.
 
-### Zero-Config React/Vite Deployments
+### Zero-Config Vite and Node/Express Deployments
 
 The Admin deploy form normally requires only a Git repository URL. After
 cloning, MiniDeploy selects a conservative deployment strategy:
@@ -73,7 +73,11 @@ cloning, MiniDeploy selects a conservative deployment strategy:
   and any advanced container-port or health-path settings.
 - A repository without a Dockerfile is selected as `vite-static` only when it
   has `package.json`, a build script, and Vite build-system evidence.
-- An npm lockfile selects `npm ci`; otherwise the Vite strategy uses
+- After Vite, a repository is selected as `node-express` only when it is a
+  conventional JavaScript npm project with a nonempty `scripts.start` and
+  Express in runtime `dependencies`. TypeScript and other framework families
+  are deliberately rejected in this phase.
+- An npm lockfile selects `npm ci`; otherwise generated npm strategies use
   `npm install`.
 
 The Vite strategy generates a temporary multi-stage Dockerfile outside the
@@ -82,6 +86,22 @@ output, then stable Alpine nginx serves it on port 80 with SPA fallback.
 Generated files are not committed to or written into the source repository.
 The selected strategy and npm install mode are persisted for redeploys,
 webhooks, history, and rollbacks.
+
+The Node/Express strategy uses a fixed Node 24 Alpine template, installs
+dependencies, and starts the service with `npm start`. It defaults to container
+port 3000 and health path `/`; zero-config services must listen on
+`process.env.PORT`. Advanced Admin settings can override the resolved port and
+health path without changing Dockerfile behavior.
+
+Runtime environment values are accepted only through Admin deployment APIs,
+validated, and passed to containers through a temporary mode-`0600` Docker
+env-file. Persisted values live separately under
+`/srv/minideploy/data/secrets/` in a mode-`0700` directory; deployment metadata
+and Admin responses contain names only, while history and Guest responses
+contain neither names nor values. Omitting `environment` during redeploy
+preserves the current map; supplying a map replaces it, including `{}` to
+clear it. Webhook redeploys, restarts, and rollbacks retain the current runtime
+configuration.
 
 ### GitHub Auto-Deploy
 
@@ -122,7 +142,8 @@ The React/Vite frontend selects one of three server-defined experiences:
 
 Admin Mode supports:
 
-- creating Dockerfile or zero-config React/Vite deployments
+- creating Dockerfile, zero-config Vite, or zero-config Node/Express deployments
+- supplying masked runtime environment values while displaying names only
 - viewing application status and configuration
 - opening public application URLs
 - runtime logs
@@ -268,7 +289,7 @@ MiniDeploy has been tested for:
 - GitHub webhook delivery
 - Go race conditions
 - direct-LAN isolation of application ports
-- deterministic Dockerfile/Vite strategy selection
+- deterministic Dockerfile/Vite/Node-Express strategy selection
 - strategy persistence across redeploy, webhook, history, and rollback paths
 
 A failed candidate release does not replace the healthy live deployment.
@@ -291,9 +312,11 @@ Security measures include:
 - HMAC-authenticated GitHub webhooks
 - Cloudflare Tunnel instead of public router port forwarding
 - loopback-only Docker application bindings
-- generated Vite Dockerfiles kept outside cloned repositories
-- no Docker socket, MiniDeploy environment, secrets, or internal paths passed
-  into generated application containers
+- generated Vite and Node Dockerfiles kept outside cloned repositories
+- no Docker socket, MiniDeploy service environment, build-time secrets, or
+  internal paths passed into generated application builds
+- application runtime values isolated from metadata/history, injected through
+  temporary env-files, and redacted from MiniDeploy-returned logs
 - Caddy-controlled public ingress
 - HTTP security headers
 - cross-origin protections
@@ -304,6 +327,9 @@ Security measures include:
 The server does not trust plain Cloudflare identity headers. A cryptographically valid Access assertion is required. Cross-origin state-changing browser requests are rejected even when an Access session exists.
 
 Repository builds execute code, and arbitrary Dockerfiles remain privileged. MiniDeploy is intended for operator-reviewed repositories rather than untrusted multi-tenant workloads.
+
+The Dell operator, root, and Docker-capable accounts remain inside the host
+trust boundary and can inherently inspect container runtime environments.
 
 ## Development
 

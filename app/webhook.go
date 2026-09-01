@@ -162,7 +162,7 @@ func githubWebhookHandler(
 			record.App,
 		)
 
-		newRecord, err := safeRedeploy(record)
+		newRecord, err := safeRedeploy(record, nil)
 
 		if err != nil {
 			log.Printf(

@@ -10,9 +10,10 @@ import (
 	"time"
 )
 
-const deploymentLogsDir = "/srv/minideploy/data/deploy-logs"
-
-var deploymentLogMu sync.Mutex
+var (
+	deploymentLogsDir = "/srv/minideploy/data/deploy-logs"
+	deploymentLogMu   sync.Mutex
+)
 
 func resetDeploymentLog(app string, operation string) {
 	path, err := deploymentLogPath(app)

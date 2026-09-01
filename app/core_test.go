@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -344,7 +345,7 @@ func TestJSONStoreLifecycle(t *testing.T) {
 		t.Fatalf("Get() error: %v", err)
 	}
 
-	if got != record {
+	if !reflect.DeepEqual(got, record) {
 		t.Fatalf(
 			"Get() = %#v; want %#v",
 			got,

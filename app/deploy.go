@@ -13,19 +13,12 @@ func deployRepository(
 	repoURL string,
 	containerPort int,
 	healthPath string,
+	environment map[string]string,
 ) (DeploymentRecord, error) {
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
-	containerPort = normalizedContainerPort(
-		containerPort,
-	)
-
-	healthPath = normalizedHealthPath(
-		healthPath,
-	)
-
-	if err := validateDeploymentConfig(
+	if err := validateRequestedDeploymentConfig(
 		containerPort,
 		healthPath,
 	); err != nil {
@@ -36,6 +29,18 @@ func deployRepository(
 
 	if appName == "" {
 		return DeploymentRecord{}, fmt.Errorf("invalid repository URL")
+	}
+
+	environmentChange, err := prepareRuntimeEnvironmentChange(
+		appName,
+		environment,
+		true,
+	)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"prepare runtime environment: %w",
+			err,
+		)
 	}
 
 	resetDeploymentLog(appName, "deployment")
@@ -166,11 +171,23 @@ func deployRepository(
 		port,
 	)
 
-	if err := startManagedContainerWithPort(
+	if len(environmentChange.effective) > 0 ||
+		plan.Strategy == deploymentStrategyNodeExpress {
+
+		deploymentEvent(
+			appName,
+			"Applying runtime environment securely...",
+		)
+	}
+
+	if err := startManagedDeploymentContainer(
+		appName,
 		containerName,
 		imageName,
 		port,
 		containerPort,
+		plan.Strategy,
+		environmentChange.effective,
 	); err != nil {
 		return DeploymentRecord{}, err
 	}
@@ -178,7 +195,11 @@ func deployRepository(
 	deploymentEvent(appName, "Container started. Verifying startup...")
 
 	if err := verifyContainerStartup(containerName); err != nil {
-		logs, _ := containerLogs(containerName, 100)
+		logs, _ := containerLogs(
+			containerName,
+			100,
+			environmentChange.effective,
+		)
 
 		_, _ = runCommand(
 			"",
@@ -213,7 +234,11 @@ func deployRepository(
 		port,
 		healthPath,
 	); err != nil {
-		logs, _ := containerLogs(containerName, 100)
+		logs, _ := containerLogs(
+			containerName,
+			100,
+			environmentChange.effective,
+		)
 
 		_, _ = runCommand(
 			"",
@@ -240,6 +265,29 @@ func deployRepository(
 
 	deploymentEvent(appName, "HTTP health check passed.")
 
+	if err := environmentChange.Commit(); err != nil {
+		_, _ = runCommand(
+			"",
+			"docker",
+			"rm",
+			"-f",
+			containerName,
+		)
+
+		_, _ = runCommand(
+			"",
+			"docker",
+			"image",
+			"rm",
+			imageName,
+		)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"save runtime environment: %w",
+			err,
+		)
+	}
+
 	record := DeploymentRecord{
 		App:                appName,
 		RepoURL:            repoURL,
@@ -251,9 +299,20 @@ func deployRepository(
 		Strategy:           plan.Strategy,
 		PackageManager:     plan.PackageManager,
 		PackageInstallMode: plan.PackageInstallMode,
+		EnvironmentVariables: runtimeEnvironmentNames(
+			environmentChange.effective,
+		),
 	}
 
 	if err := store.Save(record); err != nil {
+		if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
+			log.Printf(
+				"failed restoring runtime environment for %s: %v",
+				appName,
+				rollbackErr,
+			)
+		}
+
 		_, _ = runCommand(
 			"",
 			"docker",
@@ -286,11 +345,34 @@ func deployRepository(
 
 func safeRedeploy(
 	old DeploymentRecord,
+	environmentReplacement map[string]string,
 ) (DeploymentRecord, error) {
 	old = normalizeDeploymentRecord(old)
 
 	deployMu.Lock()
 	defer deployMu.Unlock()
+
+	environmentChange, err := prepareRuntimeEnvironmentChange(
+		old.App,
+		environmentReplacement,
+		environmentReplacement != nil,
+	)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"prepare runtime environment: %w",
+			err,
+		)
+	}
+
+	if environmentReplacement == nil {
+		if err := verifyRuntimeEnvironmentMetadata(
+			old,
+			environmentChange.effective,
+		); err != nil {
+
+			return DeploymentRecord{}, err
+		}
+	}
 
 	resetDeploymentLog(old.App, "zero-downtime redeploy")
 	deploymentEvent(
@@ -454,11 +536,23 @@ func safeRedeploy(
 		candidatePort,
 	)
 
-	if err := startManagedContainerWithPort(
+	if len(environmentChange.effective) > 0 ||
+		plan.Strategy == deploymentStrategyNodeExpress {
+
+		deploymentEvent(
+			old.App,
+			"Applying runtime environment to candidate securely...",
+		)
+	}
+
+	if err := startManagedDeploymentContainer(
+		old.App,
 		candidateContainer,
 		newImage,
 		candidatePort,
 		plan.ContainerPort,
+		plan.Strategy,
+		environmentChange.effective,
 	); err != nil {
 		_, _ = runCommand(
 			"",
@@ -499,6 +593,7 @@ func safeRedeploy(
 		logs, _ := containerLogs(
 			candidateContainer,
 			100,
+			environmentChange.effective,
 		)
 		cleanupCandidate(true)
 
@@ -516,6 +611,7 @@ func safeRedeploy(
 		logs, _ := containerLogs(
 			candidateContainer,
 			100,
+			environmentChange.effective,
 		)
 		cleanupCandidate(true)
 
@@ -547,10 +643,30 @@ func safeRedeploy(
 	newRecord.Strategy = plan.Strategy
 	newRecord.PackageManager = plan.PackageManager
 	newRecord.PackageInstallMode = plan.PackageInstallMode
+	newRecord.EnvironmentVariables = runtimeEnvironmentNames(
+		environmentChange.effective,
+	)
+
+	if err := environmentChange.Commit(); err != nil {
+		cleanupCandidate(true)
+
+		return DeploymentRecord{}, fmt.Errorf(
+			"save candidate runtime environment: %w",
+			err,
+		)
+	}
 
 	// Persist the candidate as the desired active deployment.
 	// The old container is deliberately still running here.
 	if err := store.Save(newRecord); err != nil {
+		if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
+			log.Printf(
+				"failed restoring runtime environment for %s: %v",
+				old.App,
+				rollbackErr,
+			)
+		}
+
 		cleanupCandidate(true)
 
 		return DeploymentRecord{}, fmt.Errorf(
@@ -579,6 +695,14 @@ func safeRedeploy(
 				"failed restoring old proxy route for %s: %v",
 				old.App,
 				restoreErr,
+			)
+		}
+
+		if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
+			log.Printf(
+				"failed restoring runtime environment for %s: %v",
+				old.App,
+				rollbackErr,
 			)
 		}
 

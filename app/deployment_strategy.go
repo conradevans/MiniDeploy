@@ -905,8 +905,8 @@ FROM node:24-alpine
 
 WORKDIR /app
 COPY package*.json ./
-RUN %s
 COPY . .
+RUN %s
 
 EXPOSE %d
 CMD ["npm", "start"]

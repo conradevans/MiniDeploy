@@ -407,6 +407,39 @@ func TestGeneratedViteRuntimeSupportsRootHostingAndSPAFallback(
 	}
 }
 
+func TestGeneratedNodeDockerfileCopiesSourceBeforeInstallScripts(
+	t *testing.T,
+) {
+	dockerfile := generatedNodeExpressDockerfile(
+		packageInstallModeCI,
+		3000,
+	)
+
+	copyIndex := strings.Index(
+		dockerfile,
+		"COPY . .",
+	)
+	installIndex := strings.Index(
+		dockerfile,
+		"RUN npm ci --no-audit --no-fund",
+	)
+
+	if copyIndex < 0 {
+		t.Fatal("generated Node Dockerfile does not copy source")
+	}
+
+	if installIndex < 0 {
+		t.Fatal("generated Node Dockerfile does not run npm ci")
+	}
+
+	if copyIndex > installIndex {
+		t.Fatalf(
+			"generated Node Dockerfile runs npm lifecycle scripts before source is available:\n%s",
+			dockerfile,
+		)
+	}
+}
+
 func TestPersistedViteStrategyDoesNotChangeInstallMode(
 	t *testing.T,
 ) {

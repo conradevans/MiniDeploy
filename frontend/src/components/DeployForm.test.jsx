@@ -135,4 +135,102 @@ describe('DeployForm', () => {
 
     expect(screen.queryByLabelText('Environment variable name 1')).toBeNull()
   })
+  test('selects only an existing ready unattached MiniBase database', async () => {
+    const onDeploy = vi.fn(async () => true)
+    const getMiniBaseDatabases = vi.fn(async () => [
+      {
+        id: 'database_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        displayName: 'Ready Scheduler',
+        status: 'ready',
+        attached: false,
+      },
+      {
+        id: 'database_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        displayName: 'Already attached',
+        status: 'ready',
+        attached: true,
+      },
+      {
+        id: 'database_cccccccccccccccccccccccccccccccc',
+        displayName: 'Not ready',
+        status: 'provisioning',
+        attached: false,
+      },
+    ])
+
+    render(
+      <DeployForm
+        onDeploy={onDeploy}
+        busy={false}
+        getMiniBaseDatabases={getMiniBaseDatabases}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show advanced deployment settings',
+      }),
+    )
+
+    const selector = await screen.findByLabelText(
+      'MiniBase database (optional)',
+    )
+    await screen.findByText('Ready Scheduler · Ready')
+    expect(screen.queryByText('Already attached · Ready')).toBeNull()
+    expect(screen.queryByText('Not ready · Ready')).toBeNull()
+
+    fireEvent.change(selector, {
+      target: { value: 'database_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+    })
+    fireEvent.change(screen.getByLabelText('Git repository'), {
+      target: {
+        value: 'https://github.com/example/scheduler.git',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+
+    await waitFor(() => {
+      expect(onDeploy).toHaveBeenCalledWith({
+        repoUrl: 'https://github.com/example/scheduler.git',
+        databaseId: 'database_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      })
+    })
+  })
+
+  test('keeps no-database deployment available when MiniBase is unavailable', async () => {
+    const onDeploy = vi.fn(async () => true)
+    render(
+      <DeployForm
+        onDeploy={onDeploy}
+        busy={false}
+        getMiniBaseDatabases={vi.fn(async () => {
+          throw new Error('unavailable')
+        })}
+      />,
+    )
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show advanced deployment settings',
+      }),
+    )
+
+    await screen.findByText(
+      'MiniBase is unavailable. You can still deploy without a database.',
+    )
+    const selector = screen.getByLabelText('MiniBase database (optional)')
+    expect(selector.value).toBe('')
+    expect(selector.disabled).toBe(false)
+
+    fireEvent.change(screen.getByLabelText('Git repository'), {
+      target: {
+        value: 'https://github.com/example/no-database.git',
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Deploy' }))
+
+    await waitFor(() => {
+      expect(onDeploy).toHaveBeenCalledWith({
+        repoUrl: 'https://github.com/example/no-database.git',
+      })
+    })
+  })
 })

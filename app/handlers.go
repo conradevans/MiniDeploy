@@ -89,11 +89,27 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.DatabaseID != "" {
+		if !miniBaseDatabaseIDPattern.MatchString(req.DatabaseID) {
+			http.Error(w, "invalid databaseId", http.StatusBadRequest)
+			return
+		}
+		if _, conflict := req.Environment["DATABASE_URL"]; conflict {
+			http.Error(
+				w,
+				"DATABASE_URL cannot be supplied with databaseId",
+				http.StatusConflict,
+			)
+			return
+		}
+	}
+
 	record, err := deployRepository(
 		req.RepoURL,
 		req.ContainerPort,
 		req.HealthPath,
 		req.Environment,
+		req.DatabaseID,
 	)
 
 	if err != nil {
@@ -108,6 +124,30 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 			)
 			return
 		}
+		if errors.Is(err, ErrInitialDatabaseUnsupported) {
+			http.Error(
+				w,
+				ErrInitialDatabaseUnsupported.Error(),
+				http.StatusUnprocessableEntity,
+			)
+			return
+		}
+		if errors.Is(err, ErrMiniBaseDatabaseUnavailable) {
+			http.Error(
+				w,
+				ErrMiniBaseDatabaseUnavailable.Error(),
+				http.StatusConflict,
+			)
+			return
+		}
+		if errors.Is(err, ErrMiniBaseOperation) {
+			http.Error(
+				w,
+				"MiniBase database attachment failed",
+				http.StatusBadGateway,
+			)
+			return
+		}
 
 		deploymentEvent(
 			appName,
@@ -119,7 +159,8 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if record.Strategy != deploymentStrategyFullstackViteNode {
+	if record.Strategy != deploymentStrategyFullstackViteNode &&
+		req.DatabaseID == "" {
 		if err := syncProxyRoutes(); err != nil {
 			log.Printf(
 				"proxy sync failed after deploying %s: %v",

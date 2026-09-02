@@ -211,7 +211,11 @@ export default function AdminDashboard({ apiMode }) {
           </div>
         </section>
 
-        <DeployForm onDeploy={handleDeploy} busy={deploying} />
+        <DeployForm
+          onDeploy={handleDeploy}
+          busy={deploying}
+          getMiniBaseDatabases={api.getMiniBaseDatabases}
+        />
 
         {(notice || error) && (
           <div className={`notice ${error ? 'error' : 'success'}`}>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -9,12 +10,54 @@ import (
 	"time"
 )
 
+var (
+	initialBuildDeploymentImage = buildDeploymentImage
+	initialFindAvailablePort    = findAvailablePort
+	initialVerifyStartup        = verifyContainerStartup
+	initialVerifyHTTPHealth     = verifyHTTPHealthPath
+	initialSynchronizeProxy     = syncProxyRoutes
+)
+
+func initialAttachmentMetadataRequiresRecovery(
+	app string,
+	attachment DatabaseAttachmentRecord,
+) bool {
+	_, err := store.Get(app)
+	if errors.Is(err, ErrDeploymentNotFound) {
+		return false
+	}
+
+	if err != nil {
+		log.Printf(
+			"failed checking deployment metadata after initial database deployment failure for %s; attachment %s for database %s was retained for recovery",
+			app,
+			attachment.AttachmentID,
+			attachment.DatabaseID,
+		)
+	} else {
+		log.Printf(
+			"failed initial database deployment metadata remains for %s; attachment %s for database %s was retained for recovery",
+			app,
+			attachment.AttachmentID,
+			attachment.DatabaseID,
+		)
+	}
+	deploymentEvent(
+		app,
+		"ERROR: deployment rollback could not prove metadata removal; attachment %s for database %s was retained for recovery.",
+		attachment.AttachmentID,
+		attachment.DatabaseID,
+	)
+	return true
+}
+
 func deployRepository(
 	repoURL string,
 	containerPort int,
 	healthPath string,
 	environment map[string]string,
-) (DeploymentRecord, error) {
+	databaseID string,
+) (deployed DeploymentRecord, deployErr error) {
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
@@ -23,6 +66,17 @@ func deployRepository(
 		healthPath,
 	); err != nil {
 		return DeploymentRecord{}, err
+	}
+
+	if databaseID != "" {
+		if !miniBaseDatabaseIDPattern.MatchString(databaseID) {
+			return DeploymentRecord{}, fmt.Errorf("invalid MiniBase database ID")
+		}
+		if _, conflict := environment["DATABASE_URL"]; conflict {
+			return DeploymentRecord{}, fmt.Errorf(
+				"DATABASE_URL cannot be supplied with a managed MiniBase database",
+			)
+		}
 	}
 
 	appName := repoName(repoURL)
@@ -112,6 +166,42 @@ func deployRepository(
 		return DeploymentRecord{}, err
 	}
 
+	initialAttachment, err := createInitialMiniBaseAttachment(
+		appName,
+		databaseID,
+		plan,
+	)
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+	cleanupInitialAttachment := initialAttachment.AttachmentID != ""
+	if initialAttachment.AttachmentID != "" {
+		defer func() {
+			if deployErr == nil || !cleanupInitialAttachment {
+				return
+			}
+			if cleanupErr := deleteInitialMiniBaseAttachment(initialAttachment); cleanupErr != nil {
+				log.Printf(
+					"automatic initial MiniBase attachment cleanup failed for %s (attachment=%s database=%s)",
+					appName,
+					initialAttachment.AttachmentID,
+					initialAttachment.DatabaseID,
+				)
+				deploymentEvent(
+					appName,
+					"ERROR: automatic database attachment cleanup failed; attachment %s for database %s requires manual detachment.",
+					initialAttachment.AttachmentID,
+					initialAttachment.DatabaseID,
+				)
+				deployErr = fmt.Errorf("%w; automatic database attachment cleanup failed", deployErr)
+			}
+		}()
+	}
+
+	var databaseAttachments []DatabaseAttachmentRecord
+	if initialAttachment.AttachmentID != "" {
+		databaseAttachments = []DatabaseAttachmentRecord{initialAttachment}
+	}
 	if plan.Strategy == deploymentStrategyFullstackViteNode {
 		describeDeploymentPlan(appName, plan)
 		record, err := deployFullstackProject(
@@ -119,8 +209,14 @@ func deployRepository(
 			repoURL,
 			plan,
 			environmentChange,
+			databaseAttachments,
 		)
 		if err != nil {
+			if initialAttachment.AttachmentID != "" &&
+				initialAttachmentMetadataRequiresRecovery(appName, initialAttachment) {
+
+				cleanupInitialAttachment = false
+			}
 			if cleanupErr := removeManagedDeploymentPath(deployPath); cleanupErr != nil {
 				log.Printf("warning: clean failed full-stack checkout: %v", cleanupErr)
 			}
@@ -149,7 +245,7 @@ func deployRepository(
 	)
 	deploymentEvent(appName, "Building Docker image...")
 
-	if output, err := buildDeploymentImage(
+	if output, err := initialBuildDeploymentImage(
 		deployPath,
 		imageName,
 		plan,
@@ -173,7 +269,7 @@ func deployRepository(
 		imageName,
 	)
 
-	port, err := findAvailablePort(
+	port, err := initialFindAvailablePort(
 		minDeployPort,
 		maxDeployPort,
 	)
@@ -182,13 +278,53 @@ func deployRepository(
 		return DeploymentRecord{}, err
 	}
 
+	record := DeploymentRecord{
+		App:                 appName,
+		RepoURL:             repoURL,
+		Container:           containerName,
+		Image:               imageName,
+		Port:                port,
+		ContainerPort:       containerPort,
+		HealthPath:          healthPath,
+		Strategy:            plan.Strategy,
+		PackageManager:      plan.PackageManager,
+		PackageInstallMode:  plan.PackageInstallMode,
+		ReactorLabMigration: plan.ReactorLabMigration,
+		EnvironmentVariables: runtimeEnvironmentNames(
+			environmentChange.effective,
+		),
+	}
+	if initialAttachment.AttachmentID != "" {
+		record.DatabaseAttachments = []DatabaseAttachmentRecord{initialAttachment}
+	}
+
+	runtime := databaseRuntime{
+		Environment: cloneRuntimeEnvironment(environmentChange.effective),
+		Redaction:   cloneRuntimeEnvironment(environmentChange.effective),
+	}
+	if initialAttachment.AttachmentID != "" {
+		runtime, err = resolveDatabaseRuntime(record, environmentChange.effective)
+		if err != nil {
+			return DeploymentRecord{}, err
+		}
+		if err := runReactorLabMigration(
+			appName,
+			imageName,
+			plan.PackageManager,
+			plan.ReactorLabMigration,
+			runtime,
+		); err != nil {
+			return DeploymentRecord{}, err
+		}
+	}
+
 	deploymentEvent(
 		appName,
 		"Starting container on host port %d...",
 		port,
 	)
 
-	if len(environmentChange.effective) > 0 ||
+	if len(runtime.Environment) > 0 ||
 		plan.Strategy == deploymentStrategyNodeExpress {
 
 		deploymentEvent(
@@ -197,25 +333,26 @@ func deployRepository(
 		)
 	}
 
-	if err := startManagedDeploymentContainer(
+	if err := startManagedDeploymentContainerWithOptions(
 		appName,
 		containerName,
 		imageName,
 		port,
 		containerPort,
 		plan.Strategy,
-		environmentChange.effective,
+		runtime.Environment,
+		managedContainerOptions{DataNetwork: runtime.DataNetwork},
 	); err != nil {
 		return DeploymentRecord{}, err
 	}
 
 	deploymentEvent(appName, "Container started. Verifying startup...")
 
-	if err := verifyContainerStartup(containerName); err != nil {
+	if err := initialVerifyStartup(containerName); err != nil {
 		logs, _ := containerLogs(
 			containerName,
 			100,
-			environmentChange.effective,
+			runtime.Redaction,
 		)
 
 		_, _ = runCommand(
@@ -247,14 +384,14 @@ func deployRepository(
 		healthPath,
 	)
 
-	if err := verifyHTTPHealthPath(
+	if err := initialVerifyHTTPHealth(
 		port,
 		healthPath,
 	); err != nil {
 		logs, _ := containerLogs(
 			containerName,
 			100,
-			environmentChange.effective,
+			runtime.Redaction,
 		)
 
 		_, _ = runCommand(
@@ -305,23 +442,6 @@ func deployRepository(
 		)
 	}
 
-	record := DeploymentRecord{
-		App:                 appName,
-		RepoURL:             repoURL,
-		Container:           containerName,
-		Image:               imageName,
-		Port:                port,
-		ContainerPort:       containerPort,
-		HealthPath:          healthPath,
-		Strategy:            plan.Strategy,
-		PackageManager:      plan.PackageManager,
-		PackageInstallMode:  plan.PackageInstallMode,
-		ReactorLabMigration: plan.ReactorLabMigration,
-		EnvironmentVariables: runtimeEnvironmentNames(
-			environmentChange.effective,
-		),
-	}
-
 	if err := store.Save(record); err != nil {
 		if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
 			log.Printf(
@@ -351,6 +471,54 @@ func deployRepository(
 			"save deployment metadata: %w",
 			err,
 		)
+	}
+
+	if initialAttachment.AttachmentID != "" {
+		deploymentEvent(appName, "Updating public route for the healthy deployment...")
+		if err := initialSynchronizeProxy(); err != nil {
+			if deleteErr := store.Delete(appName); deleteErr != nil {
+				cleanupInitialAttachment = false
+				log.Printf(
+					"initial proxy sync failed for %s and deployment metadata could not be removed; attachment %s for database %s was retained for recovery",
+					appName,
+					initialAttachment.AttachmentID,
+					initialAttachment.DatabaseID,
+				)
+				deploymentEvent(
+					appName,
+					"ERROR: public route update and automatic rollback failed; attachment %s for database %s was retained for recovery.",
+					initialAttachment.AttachmentID,
+					initialAttachment.DatabaseID,
+				)
+				return DeploymentRecord{}, fmt.Errorf(
+					"synchronize proxy for initial database deployment; rollback metadata removal failed",
+				)
+			}
+
+			if restoreErr := initialSynchronizeProxy(); restoreErr != nil {
+				log.Printf(
+					"warning: failed restoring proxy routes after initial database deployment failure for %s",
+					appName,
+				)
+			}
+			if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
+				log.Printf(
+					"warning: failed restoring runtime environment after initial database deployment failure for %s",
+					appName,
+				)
+			}
+			_, _ = runCommand("", "docker", "rm", "-f", containerName)
+			_, _ = runCommand("", "docker", "image", "rm", imageName)
+			if cleanupErr := removeManagedDeploymentPath(deployPath); cleanupErr != nil {
+				log.Printf(
+					"warning: failed cleaning source after initial database deployment failure for %s",
+					appName,
+				)
+			}
+			return DeploymentRecord{}, fmt.Errorf(
+				"synchronize proxy for initial database deployment",
+			)
+		}
 	}
 
 	deploymentEvent(

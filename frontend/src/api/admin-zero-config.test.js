@@ -101,4 +101,30 @@ describe.each([
       ],
     ])
   })
+  test('submits an optional existing MiniBase database ID', async () => {
+    const requester = vi.fn(async () => ({}))
+    const api = createAdminApi(mode, requester)
+
+    await api.deployApplication({
+      repoUrl: 'https://github.com/example/scheduler.git',
+      environment: {
+        JWT_SECRET: 'application-secret',
+      },
+      databaseId: 'database_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    })
+
+    expect(requester).toHaveBeenCalledWith(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        repoUrl: 'https://github.com/example/scheduler.git',
+        environment: {
+          JWT_SECRET: 'application-secret',
+        },
+        databaseId: 'database_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
+    })
+  })
 })

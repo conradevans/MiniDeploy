@@ -61,6 +61,7 @@ export function createAdminApi(mode, requester = request) {
       containerPort,
       healthPath,
       environment,
+      databaseId,
     }) {
       const payload = {
         repoUrl,
@@ -76,6 +77,10 @@ export function createAdminApi(mode, requester = request) {
 
       if (environment !== undefined) {
         payload.environment = environment
+      }
+
+      if (databaseId !== undefined) {
+        payload.databaseId = databaseId
       }
 
       return requester(`${base}/deploy`, {

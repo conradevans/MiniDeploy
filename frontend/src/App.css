@@ -292,7 +292,8 @@
   font-weight: 700;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   height: 43px;
   padding: 0 12px;
@@ -304,8 +305,21 @@
   font-size: 13px;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   border-color: #656e7c;
+}
+
+.database-selector {
+  max-width: 620px;
+  display: grid;
+  gap: 7px;
+}
+
+.database-selector small {
+  color: #8b939f;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .button {

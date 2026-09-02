@@ -24,18 +24,25 @@ type fakeMiniBaseClient struct {
 	attachedDB      string
 	consumerRef     string
 	onCreateAttach  func()
+	listCalls       int
+	createDBCalls   int
+	attachmentCalls int
+	bindingCalls    int
 }
 
 func (client *fakeMiniBaseClient) ListDatabases(context.Context) ([]miniBaseDatabase, error) {
+	client.listCalls++
 	return client.databases, client.err
 }
 
 func (client *fakeMiniBaseClient) CreateDatabase(_ context.Context, displayName string) (miniBaseDatabase, error) {
+	client.createDBCalls++
 	client.createdName = displayName
 	return client.createdDatabase, client.err
 }
 
 func (client *fakeMiniBaseClient) CreateAttachment(_ context.Context, databaseID, consumerRef string) (miniBaseAttachment, error) {
+	client.attachmentCalls++
 	client.attachedDB = databaseID
 	client.consumerRef = consumerRef
 	if client.onCreateAttach != nil {
@@ -53,6 +60,7 @@ func (client *fakeMiniBaseClient) DeleteAttachment(_ context.Context, id string)
 }
 
 func (client *fakeMiniBaseClient) ResolveBinding(context.Context, string) (miniBaseBinding, error) {
+	client.bindingCalls++
 	return client.binding, client.err
 }
 

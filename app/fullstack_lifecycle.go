@@ -286,6 +286,7 @@ func deployFullstackProject(
 	repoURL string,
 	plan deploymentBuildPlan,
 	environmentChange *runtimeEnvironmentChange,
+	databaseAttachments []DatabaseAttachmentRecord,
 ) (DeploymentRecord, error) {
 	release := fmt.Sprintf("%d", time.Now().UnixNano())
 	record, err := newFullstackReleaseRecord(
@@ -299,6 +300,7 @@ func deployFullstackProject(
 	if err != nil {
 		return DeploymentRecord{}, err
 	}
+	record.DatabaseAttachments = cloneDatabaseAttachments(databaseAttachments)
 
 	if err := buildFullstackRelease(record, plan); err != nil {
 		return DeploymentRecord{}, err

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -9,6 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+)
+
+var (
+	ErrInitialDatabaseUnsupported  = errors.New("deployment strategy does not support MiniBase")
+	ErrMiniBaseDatabaseUnavailable = errors.New("MiniBase database is unavailable for attachment")
+	ErrMiniBaseOperation           = errors.New("MiniBase operation failed")
 )
 
 type databaseRuntime struct {
@@ -55,6 +62,99 @@ func deploymentSupportsMiniBase(record DeploymentRecord) bool {
 	default:
 		return false
 	}
+}
+
+func deploymentPlanSupportsMiniBase(plan deploymentBuildPlan) bool {
+	switch plan.Strategy {
+	case deploymentStrategyNodeExpress:
+		return true
+	case deploymentStrategyFullstackViteNode:
+		backend, ok := fullstackBuildServiceByName(plan, fullstackBackendService)
+		return ok && backend.Build.Strategy == deploymentStrategyNodeExpress
+	default:
+		return false
+	}
+}
+
+func availableExistingMiniBaseDatabase(
+	ctx context.Context,
+	databaseID string,
+) (miniBaseDatabase, error) {
+	if !miniBaseDatabaseIDPattern.MatchString(databaseID) {
+		return miniBaseDatabase{}, ErrMiniBaseDatabaseUnavailable
+	}
+
+	databases, err := miniBaseClient.ListDatabases(ctx)
+	if err != nil {
+		return miniBaseDatabase{}, ErrMiniBaseOperation
+	}
+
+	for _, candidate := range databases {
+		if candidate.ID == databaseID &&
+			candidate.Status == "ready" &&
+			!candidate.Attached {
+
+			return candidate, nil
+		}
+	}
+
+	return miniBaseDatabase{}, ErrMiniBaseDatabaseUnavailable
+}
+
+func createExistingMiniBaseAttachment(
+	ctx context.Context,
+	app string,
+	databaseID string,
+) (DatabaseAttachmentRecord, error) {
+	database, err := availableExistingMiniBaseDatabase(ctx, databaseID)
+	if err != nil {
+		return DatabaseAttachmentRecord{}, err
+	}
+
+	attachment, err := miniBaseClient.CreateAttachment(ctx, database.ID, app)
+	if err != nil {
+		return DatabaseAttachmentRecord{}, ErrMiniBaseOperation
+	}
+
+	return DatabaseAttachmentRecord{
+		AttachmentID: attachment.ID,
+		DatabaseID:   database.ID,
+		DisplayName:  database.DisplayName,
+		BindingName:  miniBaseBindingPrimary,
+	}, nil
+}
+
+func createInitialMiniBaseAttachment(
+	app string,
+	databaseID string,
+	plan deploymentBuildPlan,
+) (DatabaseAttachmentRecord, error) {
+	if databaseID == "" {
+		return DatabaseAttachmentRecord{}, nil
+	}
+	if !deploymentPlanSupportsMiniBase(plan) {
+		return DatabaseAttachmentRecord{}, ErrInitialDatabaseUnsupported
+	}
+
+	// deployRepository already holds deployMu. MiniBase atomically rejects a
+	// competing attachment, so taking databaseAttachmentMu here would invert
+	// the post-deploy attachment lock order.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*miniBaseRequestTimeout)
+	defer cancel()
+	return createExistingMiniBaseAttachment(ctx, app, databaseID)
+}
+
+func deleteInitialMiniBaseAttachment(attachment DatabaseAttachmentRecord) error {
+	if attachment.AttachmentID == "" {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), miniBaseRequestTimeout)
+	defer cancel()
+	if err := miniBaseClient.DeleteAttachment(ctx, attachment.AttachmentID); err != nil {
+		return fmt.Errorf("automatic MiniBase attachment cleanup failed")
+	}
+	return nil
 }
 
 func validateManagedDatabaseEnvironment(record DeploymentRecord, environment map[string]string) error {

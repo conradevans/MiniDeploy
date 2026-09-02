@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -126,19 +125,7 @@ func attachMiniBaseDatabase(w http.ResponseWriter, r *http.Request, record Deplo
 			http.Error(w, "attach mode requires databaseId only", http.StatusBadRequest)
 			return
 		}
-		var databases []miniBaseDatabase
-		databases, err = miniBaseClient.ListDatabases(ctx)
-		if err == nil {
-			for _, candidate := range databases {
-				if candidate.ID == input.DatabaseID && !candidate.Attached {
-					database = candidate
-					break
-				}
-			}
-			if database.ID == "" {
-				err = fmt.Errorf("database is unavailable for attachment")
-			}
-		}
+		database, err = availableExistingMiniBaseDatabase(ctx, input.DatabaseID)
 	default:
 		http.Error(w, "mode must be create or attach", http.StatusBadRequest)
 		return

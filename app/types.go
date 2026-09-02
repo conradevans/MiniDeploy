@@ -20,6 +20,7 @@ type DeployRequest struct {
 	ContainerPort int               `json:"containerPort"`
 	HealthPath    string            `json:"healthPath"`
 	Environment   map[string]string `json:"environment"`
+	DatabaseID    string            `json:"databaseId"`
 }
 
 type RedeployRequest struct {

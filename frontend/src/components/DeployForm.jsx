@@ -1,14 +1,51 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+
+import { safeMiniBaseDatabases } from '../utils/minibase'
 
 export default function DeployForm({
   onDeploy,
   busy,
+  getMiniBaseDatabases,
 }) {
   const [repoUrl, setRepoUrl] = useState('')
   const [containerPort, setContainerPort] = useState('')
   const [healthPath, setHealthPath] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [environmentRows, setEnvironmentRows] = useState([])
+  const [databaseId, setDatabaseId] = useState('')
+  const [databases, setDatabases] = useState([])
+  const [databasesLoading, setDatabasesLoading] = useState(
+    typeof getMiniBaseDatabases === 'function',
+  )
+  const [databaseError, setDatabaseError] = useState('')
+
+  useEffect(() => {
+    if (typeof getMiniBaseDatabases !== 'function') {
+      return undefined
+    }
+
+    let active = true
+    getMiniBaseDatabases()
+      .then((result) => {
+        if (!active) return
+        setDatabases(safeMiniBaseDatabases(result))
+        setDatabaseError('')
+      })
+      .catch(() => {
+        if (active) {
+          setDatabaseError(
+            'MiniBase is unavailable. You can still deploy without a database.',
+          )
+        }
+      })
+      .finally(() => {
+        if (active) setDatabasesLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [getMiniBaseDatabases])
 
   function addEnvironmentRow() {
     setEnvironmentRows((rows) => [
@@ -69,6 +106,10 @@ export default function DeployForm({
           environmentRows.map((row) => [row.name.trim(), row.value]),
         )
       }
+
+      if (databaseId) {
+        config.databaseId = databaseId
+      }
     }
 
     const success = await onDeploy(config)
@@ -78,6 +119,7 @@ export default function DeployForm({
       setContainerPort('')
       setHealthPath('')
       setEnvironmentRows([])
+      setDatabaseId('')
       setShowAdvanced(false)
     }
   }
@@ -160,6 +202,31 @@ export default function DeployForm({
                 disabled={busy}
               />
             </label>
+          </div>
+
+          <div className="database-selector">
+            <label className="field" htmlFor="initial-minibase-database">
+              <span>MiniBase database (optional)</span>
+              <select
+                id="initial-minibase-database"
+                value={databaseId}
+                onChange={(event) => setDatabaseId(event.target.value)}
+                disabled={busy || databasesLoading}
+              >
+                <option value="">No database</option>
+                {databases.map((database) => (
+                  <option key={database.id} value={database.id}>
+                    {database.displayName} · Ready
+                  </option>
+                ))}
+              </select>
+            </label>
+            <small>
+              {databasesLoading
+                ? 'Loading ready unattached databases…'
+                : databaseError ||
+                  'Only existing ready unattached databases can be selected.'}
+            </small>
           </div>
 
           <div className="environment-editor">

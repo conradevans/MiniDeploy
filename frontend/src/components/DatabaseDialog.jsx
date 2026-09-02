@@ -1,33 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { safeMiniBaseDatabases } from '../utils/minibase'
+
 function suggestedName(app) {
   const words = String(app)
     .split('-')
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
   return `${words.join(' ') || 'Application'} Production`
-}
-
-function safeDatabases(value) {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.flatMap((database) => {
-    if (
-      !database ||
-      typeof database.id !== 'string' ||
-      typeof database.displayName !== 'string' ||
-      database.status !== 'ready' ||
-      database.attached !== false
-    ) {
-      return []
-    }
-    return [{
-      id: database.id,
-      displayName: database.displayName,
-      status: database.status,
-    }]
-  })
 }
 
 export default function DatabaseDialog({ api, deployment, onClose, onAttached }) {
@@ -45,7 +25,7 @@ export default function DatabaseDialog({ api, deployment, onClose, onAttached })
     api.getMiniBaseDatabases()
       .then((result) => {
         if (!active) return
-        const safe = safeDatabases(result)
+        const safe = safeMiniBaseDatabases(result)
         setDatabases(safe)
         setDatabaseID(safe[0]?.id || '')
         setError('')

@@ -345,3 +345,152 @@ func TestReattachRefusesRunningDeployment(
 		)
 	}
 }
+
+func TestFirstAttachToRunningDeploymentUsesSafeRedeploy(
+	t *testing.T,
+) {
+	record := attachedNodeRecord()
+	record.DatabaseAttachments = nil
+	record.DatabaseDetached = false
+
+	testStore := lifecycleTestStore(t, record)
+
+	previousRuntimeStore := runtimeEnvironmentStore
+	runtimeEnvironmentStore = newRuntimeEnvironmentFileStore(
+		filepath.Join(t.TempDir(), "runtime-secrets"),
+	)
+	t.Cleanup(func() {
+		runtimeEnvironmentStore = previousRuntimeStore
+	})
+
+	if err := runtimeEnvironmentStore.Replace(
+		record.App,
+		map[string]string{
+			"APP_MODE": "test",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	databaseID :=
+		"database_cccccccccccccccccccccccccccccccc"
+	attachmentID :=
+		"attachment_dddddddddddddddddddddddddddddddd"
+
+	client := &fakeMiniBaseClient{
+		databases: []miniBaseDatabase{{
+			ID:          databaseID,
+			DisplayName: "Fresh Database",
+			Status:      "ready",
+			Attached:    false,
+		}},
+		attachment: miniBaseAttachment{
+			ID:           attachmentID,
+			DatabaseID:   databaseID,
+			ConsumerType: "minideploy",
+			ConsumerRef:  record.App,
+			BindingName:  miniBaseBindingPrimary,
+		},
+	}
+	replaceMiniBaseClientForTest(t, client)
+
+	previousRedeploy := databaseAttachmentRedeploy
+	redeployCalls := 0
+	databaseAttachmentRedeploy = func(
+		candidate DeploymentRecord,
+		_ map[string]string,
+	) (DeploymentRecord, error) {
+		redeployCalls++
+
+		if len(candidate.DatabaseAttachments) != 1 {
+			t.Fatal(
+				"safe redeploy did not receive database attachment",
+			)
+		}
+		if candidate.DatabaseAttachments[0].DatabaseID != databaseID {
+			t.Fatal(
+				"safe redeploy received wrong database",
+			)
+		}
+
+		candidate.Port = 8501
+		return candidate, nil
+	}
+	t.Cleanup(func() {
+		databaseAttachmentRedeploy = previousRedeploy
+	})
+
+	previousStatusRunner := commandRunner
+	commandRunner = func(
+		dir string,
+		name string,
+		args ...string,
+	) (string, error) {
+		if name == "docker" &&
+			len(args) >= 4 &&
+			args[0] == "inspect" &&
+			args[1] == "-f" {
+
+			return "running\n", nil
+		}
+
+		return previousStatusRunner(
+			dir,
+			name,
+			args...,
+		)
+	}
+	t.Cleanup(func() {
+		commandRunner = previousStatusRunner
+	})
+
+	updated, err := attachDatabaseToDeployment(
+		context.Background(),
+		record.App,
+		databaseID,
+	)
+	if err != nil {
+		t.Fatalf(
+			"attachDatabaseToDeployment() error: %v",
+			err,
+		)
+	}
+
+	if redeployCalls != 1 {
+		t.Fatalf(
+			"redeploy calls = %d; want 1",
+			redeployCalls,
+		)
+	}
+
+	if client.attachmentCalls != 1 {
+		t.Fatalf(
+			"attachment calls = %d; want 1",
+			client.attachmentCalls,
+		)
+	}
+
+	if updated.DatabaseDetached {
+		t.Fatal(
+			"running deployment became detached",
+		)
+	}
+
+	if len(updated.DatabaseAttachments) != 1 {
+		t.Fatal(
+			"running deployment did not retain attachment",
+		)
+	}
+
+	persisted, err :=
+		testStore.Get(record.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(persisted.DatabaseAttachments) != 1 {
+		t.Fatal(
+			"database attachment was not persisted",
+		)
+	}
+}

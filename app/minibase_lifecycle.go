@@ -24,6 +24,9 @@ var (
 	ErrDatabaseLifecycleNotDetached = errors.New(
 		"deployment is not waiting for database reconnection",
 	)
+	ErrDatabaseLifecycleDeploymentUnavailable = errors.New(
+		"deployment is not available for database attachment",
+	)
 
 	miniBaseLifecycleTokenPath = defaultMiniBaseTokenPath
 
@@ -215,7 +218,7 @@ func miniBaseLifecycleAttachHandler(
 		return
 	}
 
-	_, err := attachDatabaseToDetachedDeployment(
+	_, err := attachDatabaseToDeployment(
 		r.Context(),
 		r.PathValue("app"),
 		input.DatabaseID,
@@ -246,6 +249,7 @@ func writeMiniBaseLifecycleError(
 	case errors.Is(err, ErrDatabaseLifecycleNotAttached),
 		errors.Is(err, ErrDatabaseLifecycleAttachmentMismatch),
 		errors.Is(err, ErrDatabaseLifecycleNotDetached),
+		errors.Is(err, ErrDatabaseLifecycleDeploymentUnavailable),
 		errors.Is(err, ErrMiniBaseDatabaseUnavailable):
 
 		http.Error(w, "database lifecycle conflict", http.StatusConflict)
@@ -372,6 +376,196 @@ func detachDatabaseFromDeployment(
 	)
 
 	return nil
+}
+
+func attachDatabaseToDeployment(
+	requestContext context.Context,
+	app string,
+	databaseID string,
+) (DeploymentRecord, error) {
+	latest, err := getDeployment(app)
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+
+	if latest.DatabaseDetached {
+		return attachDatabaseToDetachedDeployment(
+			requestContext,
+			app,
+			databaseID,
+		)
+	}
+
+	return attachDatabaseToRunningDeployment(
+		requestContext,
+		app,
+		databaseID,
+	)
+}
+
+func attachDatabaseToRunningDeployment(
+	requestContext context.Context,
+	app string,
+	databaseID string,
+) (DeploymentRecord, error) {
+	databaseAttachmentMu.Lock()
+	defer databaseAttachmentMu.Unlock()
+
+	latest, err := getDeployment(app)
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+	if !deploymentSupportsMiniBase(latest) {
+		return DeploymentRecord{},
+			ErrDatabaseLifecycleUnsupported
+	}
+	if latest.DatabaseDetached {
+		return DeploymentRecord{},
+			ErrDatabaseLifecycleNotDetached
+	}
+	if deploymentProjectStatus(latest) != "running" {
+		return DeploymentRecord{},
+			ErrDatabaseLifecycleDeploymentUnavailable
+	}
+
+	if _, attached, err :=
+		currentDatabaseAttachment(latest); err != nil {
+
+		return DeploymentRecord{}, err
+	} else if attached {
+		return DeploymentRecord{},
+			ErrDatabaseLifecycleAttachmentMismatch
+	}
+
+	environment, err :=
+		runtimeEnvironmentStore.Load(latest.App)
+	if err != nil {
+		return DeploymentRecord{},
+			fmt.Errorf(
+				"load runtime environment: %w",
+				err,
+			)
+	}
+	if _, conflict := environment["DATABASE_URL"]; conflict {
+		return DeploymentRecord{},
+			fmt.Errorf(
+				"managed DATABASE_URL conflicts with stored runtime environment",
+			)
+	}
+
+	ctx, cancel := context.WithTimeout(
+		requestContext,
+		5*miniBaseRequestTimeout,
+	)
+	defer cancel()
+
+	database, err :=
+		availableExistingMiniBaseDatabase(ctx, databaseID)
+	if err != nil {
+		if errors.Is(
+			err,
+			ErrMiniBaseDatabaseUnavailable,
+		) {
+			return DeploymentRecord{},
+				ErrMiniBaseDatabaseUnavailable
+		}
+
+		return DeploymentRecord{},
+			ErrMiniBaseOperation
+	}
+
+	attachment, err :=
+		miniBaseClient.CreateAttachment(
+			ctx,
+			database.ID,
+			latest.App,
+		)
+	if err != nil {
+		return DeploymentRecord{},
+			ErrMiniBaseOperation
+	}
+
+	original := latest
+
+	latest.DatabaseAttachments =
+		[]DatabaseAttachmentRecord{{
+			AttachmentID: attachment.ID,
+			DatabaseID:   database.ID,
+			DisplayName:  database.DisplayName,
+			BindingName:  miniBaseBindingPrimary,
+		}}
+
+	if err := store.Save(latest); err != nil {
+		if detachErr :=
+			miniBaseClient.DeleteAttachment(
+				ctx,
+				attachment.ID,
+			); detachErr != nil {
+
+			// Fail closed: keep local attachment metadata
+			// aligned with the MiniBase attachment that could
+			// not be removed.
+			_ = store.Save(latest)
+
+			return DeploymentRecord{},
+				fmt.Errorf(
+					"%w: attachment compensation failed",
+					ErrMiniBaseOperation,
+				)
+		}
+
+		return DeploymentRecord{},
+			fmt.Errorf(
+				"save database attachment metadata: %w",
+				err,
+			)
+	}
+
+	updated, err :=
+		databaseAttachmentRedeploy(latest, nil)
+	if err == nil {
+		deploymentEvent(
+			latest.App,
+			"MiniBase database attached. Safe redeploy completed successfully.",
+		)
+
+		return updated, nil
+	}
+
+	// The safe redeploy contract keeps the previous release live
+	// when candidate deployment fails. Remove the new attachment
+	// so MiniBase remains standalone and the user can retry.
+	if detachErr :=
+		miniBaseClient.DeleteAttachment(
+			ctx,
+			attachment.ID,
+		); detachErr != nil {
+
+		// MiniBase still considers the database attached, so retain
+		// the same local metadata. This prevents deletion until the
+		// relationship can be cleaned up safely.
+		_ = store.Save(latest)
+
+		return DeploymentRecord{},
+			fmt.Errorf(
+				"%w: deployment update and attachment compensation failed",
+				ErrMiniBaseOperation,
+			)
+	}
+
+	if restoreErr := store.Save(original); restoreErr != nil {
+		return DeploymentRecord{},
+			fmt.Errorf(
+				"deployment update failed and local attachment metadata could not be restored: %w",
+				restoreErr,
+			)
+	}
+
+	return DeploymentRecord{},
+		fmt.Errorf(
+			"attach database redeploy failed: %w",
+			err,
+		)
 }
 
 func attachDatabaseToDetachedDeployment(

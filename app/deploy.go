@@ -535,6 +535,10 @@ func safeRedeploy(
 ) (DeploymentRecord, error) {
 	old = normalizeDeploymentRecord(old)
 
+	if old.DatabaseDetached {
+		return DeploymentRecord{}, ErrDatabaseDetached
+	}
+
 	deployMu.Lock()
 	defer deployMu.Unlock()
 

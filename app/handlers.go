@@ -243,6 +243,15 @@ func redeployHandler(w http.ResponseWriter, r *http.Request) {
 		req.Environment,
 	)
 
+	if errors.Is(err, ErrDatabaseDetached) {
+		http.Error(
+			w,
+			"database is detached; attach it in MiniBase first",
+			http.StatusConflict,
+		)
+		return
+	}
+
 	if err != nil {
 		deploymentEvent(
 			record.App,
@@ -384,6 +393,15 @@ func rollbackDeploymentHandler(
 	}
 
 	record, err := rollbackDeployment(current)
+
+	if errors.Is(err, ErrDatabaseDetached) {
+		http.Error(
+			w,
+			"database is detached; attach it in MiniBase first",
+			http.StatusConflict,
+		)
+		return
+	}
 
 	if errors.Is(err, ErrNoRollbackVersion) {
 		http.Error(
@@ -675,6 +693,15 @@ func restartDeploymentHandler(
 			w,
 			"failed to load deployment",
 			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if record.DatabaseDetached {
+		http.Error(
+			w,
+			"database is detached; attach it in MiniBase first",
+			http.StatusConflict,
 		)
 		return
 	}

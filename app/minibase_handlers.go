@@ -81,6 +81,10 @@ func attachMiniBaseDatabase(w http.ResponseWriter, r *http.Request, record Deplo
 		http.Error(w, "this deployment strategy does not support MiniBase", http.StatusUnprocessableEntity)
 		return
 	}
+	if latest.DatabaseDetached {
+		http.Error(w, "reattach this deployment from MiniBase", http.StatusConflict)
+		return
+	}
 	if _, attached, err := currentDatabaseAttachment(latest); err != nil {
 		http.Error(w, "invalid deployment database metadata", http.StatusInternalServerError)
 		return

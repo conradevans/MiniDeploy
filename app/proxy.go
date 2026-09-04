@@ -44,7 +44,25 @@ func syncProxyRoutes() error {
 
 	for _, record := range records {
 		record = normalizeDeploymentRecord(record)
-		if record.App == "" || record.Port <= 0 {
+		if record.App == "" {
+			continue
+		}
+
+		hostname := publicHostnameForApp(record.App)
+
+		if record.DatabaseDetached {
+			localRoutes, publicRoutes := detachedProxyRouteFragments(
+				record,
+				publicIndex,
+				hostname,
+			)
+			localConfig.WriteString(localRoutes)
+			publicConfig.WriteString(publicRoutes)
+			publicIndex++
+			continue
+		}
+
+		if record.Port <= 0 {
 			continue
 		}
 
@@ -57,7 +75,6 @@ func syncProxyRoutes() error {
 			record.App,
 		)
 
-		hostname := publicHostnameForApp(record.App)
 		if record.Strategy == deploymentStrategyFullstackViteNode {
 			localRoutes, publicRoutes, err :=
 				fullstackProxyRouteFragments(
@@ -141,6 +158,42 @@ func syncProxyRoutes() error {
 	}
 
 	return nil
+}
+
+const databaseDetachedMessage = "Deployment temporarily unavailable. This deployment is stopped because its database is detached."
+
+func detachedProxyRouteFragments(
+	record DeploymentRecord,
+	index int,
+	hostname string,
+) (string, string) {
+	localRoutes := fmt.Sprintf(
+		"redir /%s /%s/\n\n"+
+			"handle_path /%s/* {\n"+
+			"\trespond %q 503\n"+
+			"}\n\n",
+		record.App,
+		record.App,
+		record.App,
+		databaseDetachedMessage,
+	)
+
+	if hostname == "" {
+		return localRoutes, ""
+	}
+
+	publicRoutes := fmt.Sprintf(
+		"@public_detached_%d host %s\n"+
+			"handle @public_detached_%d {\n"+
+			"\trespond %q 503\n"+
+			"}\n\n",
+		index,
+		hostname,
+		index,
+		databaseDetachedMessage,
+	)
+
+	return localRoutes, publicRoutes
 }
 
 func fullstackProxyServices(

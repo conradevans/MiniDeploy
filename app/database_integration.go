@@ -16,6 +16,7 @@ var (
 	ErrInitialDatabaseUnsupported  = errors.New("deployment strategy does not support MiniBase")
 	ErrMiniBaseDatabaseUnavailable = errors.New("MiniBase database is unavailable for attachment")
 	ErrMiniBaseOperation           = errors.New("MiniBase operation failed")
+	ErrDatabaseDetached            = errors.New("deployment database is detached")
 )
 
 type databaseRuntime struct {

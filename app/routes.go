@@ -14,6 +14,21 @@ func routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"GET /internal/minibase/deployments",
+		miniBaseLifecycleDeploymentsHandler,
+	)
+
+	mux.HandleFunc(
+		"POST /internal/minibase/deployments/{app}/database/detach",
+		miniBaseLifecycleDetachHandler,
+	)
+
+	mux.HandleFunc(
+		"POST /internal/minibase/deployments/{app}/database/attach",
+		miniBaseLifecycleAttachHandler,
+	)
+
+	mux.HandleFunc(
 		"POST /deploy",
 		deployHandler,
 	)

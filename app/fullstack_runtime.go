@@ -361,6 +361,9 @@ func fullstackServiceRuntimeEnvironment(
 
 func deploymentProjectStatus(record DeploymentRecord) string {
 	record = normalizeDeploymentRecord(record)
+	if record.DatabaseDetached {
+		return "database-detached"
+	}
 	if record.Strategy != deploymentStrategyFullstackViteNode {
 		return containerStatus(record.Container)
 	}

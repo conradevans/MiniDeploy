@@ -78,6 +78,10 @@ func rollbackDeployment(
 ) (DeploymentRecord, error) {
 	current = normalizeDeploymentRecord(current)
 
+	if current.DatabaseDetached {
+		return DeploymentRecord{}, ErrDatabaseDetached
+	}
+
 	deployMu.Lock()
 	defer deployMu.Unlock()
 

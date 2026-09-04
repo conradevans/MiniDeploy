@@ -26,6 +26,7 @@ type DeploymentRecord struct {
 	Network              string                     `json:"network,omitempty"`
 	ReactorLabMigration  bool                       `json:"reactorlabMigration,omitempty"`
 	DatabaseAttachments  []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
+	DatabaseDetached     bool                       `json:"databaseDetached,omitempty"`
 }
 
 type DatabaseAttachmentRecord struct {

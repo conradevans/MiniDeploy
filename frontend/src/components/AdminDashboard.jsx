@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createAdminApi } from '../api/admin'
 import Brand from './Brand'
 import DeployForm from './DeployForm'
-import DatabaseDialog from './DatabaseDialog'
 import DeploymentCard from './DeploymentCard'
 import HistoryList from './HistoryList'
 import Modal from './Modal'
@@ -17,7 +16,6 @@ export default function AdminDashboard({ apiMode }) {
   const [deploying, setDeploying] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
-	const [databaseDeployment, setDatabaseDeployment] = useState(null)
   const [modal, setModal] = useState({
     title: '',
     type: '',
@@ -272,7 +270,6 @@ export default function AdminDashboard({ apiMode }) {
                   onHistory={showHistory}
                   onRollback={handleRollback}
                   onDelete={handleDelete}
-					onDatabase={setDatabaseDeployment}
                 />
               ))}
             </div>
@@ -302,23 +299,6 @@ export default function AdminDashboard({ apiMode }) {
         )}
       </Modal>
 
-		<Modal
-			title={databaseDeployment ? `Add MiniBase Database · ${databaseDeployment.app}` : ''}
-			onClose={() => setDatabaseDeployment(null)}
-		>
-			{databaseDeployment ? (
-				<DatabaseDialog
-					api={api}
-					deployment={databaseDeployment}
-					onClose={() => setDatabaseDeployment(null)}
-					onAttached={async () => {
-						setDatabaseDeployment(null)
-						setNotice(`${databaseDeployment.app} is now connected to MiniBase.`)
-						await loadDeployments()
-					}}
-				/>
-			) : null}
-		</Modal>
     </>
   )
 }

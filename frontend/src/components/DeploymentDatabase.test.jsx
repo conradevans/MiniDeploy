@@ -1,11 +1,11 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import DeploymentCard from './DeploymentCard'
 
 afterEach(cleanup)
 
-function actions(overrides = {}) {
+function actions() {
   return {
     onLogs: vi.fn(),
     onDeployLogs: vi.fn(),
@@ -14,8 +14,6 @@ function actions(overrides = {}) {
     onHistory: vi.fn(),
     onRollback: vi.fn(),
     onDelete: vi.fn(),
-    onDatabase: vi.fn(),
-    ...overrides,
   }
 }
 
@@ -33,48 +31,124 @@ function deployment(overrides = {}) {
 }
 
 describe('DeploymentCard MiniBase section', () => {
-  test('opens the add-database flow for a supported unattached deployment', () => {
-    const callbacks = actions()
-    const record = deployment()
-    render(<DeploymentCard deployment={record} busy={false} {...callbacks} />)
+  test('keeps an unattached supported deployment read-only', () => {
+    render(
+      <DeploymentCard
+        deployment={deployment()}
+        busy={false}
+        {...actions()}
+      />,
+    )
+
     expect(screen.getByText('No database attached')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Add MiniBase Database' }))
-    expect(callbacks.onDatabase).toHaveBeenCalledWith(record)
+
+    expect(
+      screen.getByText(
+        'Attach or manage a PostgreSQL database from MiniBase.',
+      ),
+    ).toBeTruthy()
+
+    expect(
+      screen.queryByRole('button', {
+        name: 'Add MiniBase Database',
+      }),
+    ).toBeNull()
   })
 
-  test('shows attached safe metadata and never renders injected credential fields', () => {
-    const view = render(
+  test('directs detached deployments back to MiniBase', () => {
+    render(
       <DeploymentCard
         deployment={deployment({
-          databaseAttachments: [{
-            attachmentId: 'attachment_0123456789abcdef0123456789abcdef',
-            databaseId: 'database_0123456789abcdef0123456789abcdef',
-            displayName: 'Express Production',
-            bindingName: 'primary',
-            password: 'mock-password-must-not-render',
-            databaseUrl: 'postgresql://must-not-render',
-          }],
+          status: 'database-detached',
+          databaseDetached: true,
         })}
         busy={false}
         {...actions()}
       />,
     )
-    expect(screen.getByText('Express Production')).toBeTruthy()
-    expect(screen.getByText('Ready · Primary binding · Backend connection managed')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Add MiniBase Database' })).toBeNull()
-    expect(view.container.textContent).not.toContain('mock-password-must-not-render')
-    expect(view.container.textContent).not.toContain('postgresql://')
+
+    expect(screen.getByText('Database detached')).toBeTruthy()
+
+    expect(
+      screen.getByText(
+        'Reconnect this deployment from MiniBase.',
+      ),
+    ).toBeTruthy()
+
+    expect(
+      screen.queryByRole('button', {
+        name: 'Add MiniBase Database',
+      }),
+    ).toBeNull()
   })
 
-  test('clearly rejects static Vite database attachment', () => {
-    render(
+  test('shows attached safe metadata without lifecycle controls', () => {
+    const view = render(
       <DeploymentCard
-        deployment={deployment({ strategy: 'vite-static', containerPort: 80 })}
+        deployment={deployment({
+          databaseAttachments: [
+            {
+              attachmentId:
+                'attachment_0123456789abcdef0123456789abcdef',
+              databaseId:
+                'database_0123456789abcdef0123456789abcdef',
+              displayName: 'Express Production',
+              bindingName: 'primary',
+              password: 'mock-password-must-not-render',
+              databaseUrl: 'postgresql://must-not-render',
+            },
+          ],
+        })}
         busy={false}
         {...actions()}
       />,
     )
-    expect(screen.getByText('Database attachment is unavailable for this deployment strategy.')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Add MiniBase Database' })).toBeNull()
+
+    expect(screen.getByText('Express Production')).toBeTruthy()
+
+    expect(
+      screen.getByText(
+        'Ready · Primary binding · Managed in MiniBase',
+      ),
+    ).toBeTruthy()
+
+    expect(
+      screen.queryByRole('button', {
+        name: 'Add MiniBase Database',
+      }),
+    ).toBeNull()
+
+    expect(view.container.textContent).not.toContain(
+      'mock-password-must-not-render',
+    )
+
+    expect(view.container.textContent).not.toContain(
+      'postgresql://',
+    )
+  })
+
+  test('still explains unsupported deployment strategies', () => {
+    render(
+      <DeploymentCard
+        deployment={deployment({
+          strategy: 'vite-static',
+          containerPort: 80,
+        })}
+        busy={false}
+        {...actions()}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'Database attachment is unavailable for this deployment strategy.',
+      ),
+    ).toBeTruthy()
+
+    expect(
+      screen.queryByRole('button', {
+        name: 'Add MiniBase Database',
+      }),
+    ).toBeNull()
   })
 })

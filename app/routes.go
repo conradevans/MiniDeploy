@@ -14,6 +14,11 @@ func routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"GET /internal/reactorlab/deployments",
+		reactorLabDeploymentsHandler,
+	)
+
+	mux.HandleFunc(
 		"GET /internal/minibase/deployments",
 		miniBaseLifecycleDeploymentsHandler,
 	)

@@ -1503,3 +1503,42 @@ footer {
   padding: 0 10px;
   border: 1px solid #303641;
 }
+
+.product-nav {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.product-link {
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #7d8591;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.product-link:hover,
+.product-link.active {
+  border-color: #2b3139;
+  background: #161a20;
+  color: #f0f0f2;
+}
+
+.ecosystem-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.switch-access-link {
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .product-nav {
+    display: none;
+  }
+}

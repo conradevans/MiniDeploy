@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { createGuestApi } from '../api/guest'
 import Brand from './Brand'
+import ProductNav from './ProductNav'
 import GuestDeploymentCard from './GuestDeploymentCard'
 
 export default function GuestDashboard({ api: providedApi = null }) {
@@ -44,11 +45,9 @@ export default function GuestDashboard({ api: providedApi = null }) {
           <Brand subtitle="Public platform view" />
 
           <div className="public-nav-actions">
-            <a className="nav-link" href="/">
-              About MiniDeploy
-            </a>
-            <a className="button secondary" href="/admin/">
-              Admin Sign In
+            <ProductNav mode="guest" />
+            <a className="button secondary" href="/">
+              Switch access
             </a>
           </div>
         </header>

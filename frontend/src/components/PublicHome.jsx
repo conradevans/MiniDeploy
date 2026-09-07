@@ -1,4 +1,5 @@
 import Brand from './Brand'
+import ProductNav from './ProductNav'
 
 const platformSteps = [
   ['01', 'Source', 'Git push received'],
@@ -17,6 +18,7 @@ export default function PublicHome() {
           <Brand subtitle="A ReactorLab project" />
 
           <div className="public-nav-actions">
+            <ProductNav mode="root" />
             <span className="availability-badge">
               <span className="status-dot live" />
               Platform online

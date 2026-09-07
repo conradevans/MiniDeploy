@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { createAdminApi } from '../api/admin'
 import Brand from './Brand'
+import ProductNav from './ProductNav'
 import DeployForm from './DeployForm'
 import DeploymentCard from './DeploymentCard'
 import HistoryList from './HistoryList'
@@ -165,7 +166,12 @@ export default function AdminDashboard({ apiMode }) {
         <header className="topbar">
           <Brand subtitle="ReactorLab deployment control plane" />
 
-          <div className="admin-identity">
+          <div className="ecosystem-actions">
+            <ProductNav mode="admin" />
+            <a className="button secondary switch-access-link" href="/">
+              Switch access
+            </a>
+            <div className="admin-identity">
             <span className="status-dot live" />
             <span>
               <small>
@@ -178,6 +184,7 @@ export default function AdminDashboard({ apiMode }) {
                     : 'SSH emergency access')}
               </strong>
             </span>
+            </div>
           </div>
         </header>
 

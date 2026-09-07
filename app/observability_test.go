@@ -99,3 +99,13 @@ func TestReactorLabTargetsUseRecordedServices(t *testing.T) {
 		t.Fatalf("unexpected targets: %#v", targets)
 	}
 }
+
+func TestReactorLabStrategyNormalizesLegacyDeployment(t *testing.T) {
+	if got := reactorLabStrategy(""); got != deploymentStrategyDockerfile {
+		t.Fatalf("legacy strategy = %q, want %q", got, deploymentStrategyDockerfile)
+	}
+
+	if got := reactorLabStrategy(deploymentStrategyNodeExpress); got != deploymentStrategyNodeExpress {
+		t.Fatalf("node strategy = %q, want %q", got, deploymentStrategyNodeExpress)
+	}
+}

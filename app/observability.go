@@ -213,7 +213,7 @@ func collectReactorLabObservability() (ReactorLabObservabilityResponse, error) {
 			deployments,
 			ReactorLabDeploymentMetrics{
 				App:        record.App,
-				Strategy:   record.Strategy,
+				Strategy:   reactorLabStrategy(record.Strategy),
 				Status:     reactorLabDeploymentStatus(record, containers),
 				Containers: containers,
 			},
@@ -226,12 +226,19 @@ func collectReactorLabObservability() (ReactorLabObservabilityResponse, error) {
 	}, nil
 }
 
+func reactorLabStrategy(strategy string) string {
+	if strategy == "" {
+		return deploymentStrategyDockerfile
+	}
+	return strategy
+}
+
 func reactorLabTargets(record DeploymentRecord) []reactorLabTarget {
 	if len(record.Services) == 0 {
 		return []reactorLabTarget{{
 			App:        record.App,
 			Service:    "app",
-			Strategy:   record.Strategy,
+			Strategy:   reactorLabStrategy(record.Strategy),
 			Container:  record.Container,
 			Port:       record.Port,
 			HealthPath: record.HealthPath,

@@ -481,12 +481,33 @@ func parseDockerBytes(value string) (uint64, error) {
 	}
 
 	i := 0
-	for i < len(value) &&
-		((value[i] >= '0' && value[i] <= '9') || value[i] == '.') {
+	digits := 0
+	for i < len(value) && value[i] >= '0' && value[i] <= '9' {
 		i++
+		digits++
 	}
-	if i == 0 {
+	if i < len(value) && value[i] == '.' {
+		i++
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+			digits++
+		}
+	}
+	if digits == 0 {
 		return 0, fmt.Errorf("invalid Docker byte value %q", value)
+	}
+	if i < len(value) && (value[i] == 'e' || value[i] == 'E') {
+		i++
+		if i < len(value) && (value[i] == '+' || value[i] == '-') {
+			i++
+		}
+		exponentStart := i
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+		}
+		if i == exponentStart {
+			return 0, fmt.Errorf("invalid Docker byte exponent %q", value)
+		}
 	}
 
 	number, err := strconv.ParseFloat(value[:i], 64)

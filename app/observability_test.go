@@ -6,6 +6,63 @@ import (
 	"testing"
 )
 
+func TestParseDockerBytes(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  uint64
+	}{
+		{name: "scientific notation", value: "1e+03kB", want: 1_000_000},
+		{name: "decimal scientific notation", value: "1.25e+03kB", want: 1_250_000},
+		{name: "uppercase exponent", value: "1E+03kB", want: 1_000_000},
+		{name: "integer decimal unit", value: "643kB", want: 643_000},
+		{name: "fractional decimal unit", value: "3.32MB", want: 3_320_000},
+		{name: "small decimal unit", value: "8.19kB", want: 8_189},
+		{name: "binary unit", value: "14.37MiB", want: 15_068_037},
+		{name: "zero bytes", value: "0B", want: 0},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseDockerBytes(test.value)
+			if err != nil {
+				t.Fatalf("parseDockerBytes(%q) returned error: %v", test.value, err)
+			}
+			if got != test.want {
+				t.Fatalf("parseDockerBytes(%q) = %d, want %d", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestParseDockerBytesRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		wantError string
+	}{
+		{name: "malformed exponent", value: "1e+kB", wantError: "invalid Docker byte exponent"},
+		{name: "unsupported unit", value: "1e+03XB", wantError: "unsupported Docker byte unit"},
+		{name: "negative", value: "-1kB", wantError: "invalid Docker byte value"},
+		{name: "NaN", value: "NaNkB", wantError: "invalid Docker byte value"},
+		{name: "positive infinity", value: "InfkB", wantError: "invalid Docker byte value"},
+		{name: "negative infinity", value: "-InfkB", wantError: "invalid Docker byte value"},
+		{name: "trailing garbage", value: "1e+03kBjunk", wantError: "unsupported Docker byte unit"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseDockerBytes(test.value)
+			if err == nil {
+				t.Fatalf("parseDockerBytes(%q) returned no error", test.value)
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("parseDockerBytes(%q) error = %q, want containing %q", test.value, err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestReactorLabObservabilityOnlyInspectsDeploymentContainers(t *testing.T) {
 	previousStore := store
 	previousRunner := commandRunner

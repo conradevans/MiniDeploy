@@ -1924,3 +1924,381 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* MiniDeploy administrator multi-view layout */
+.control-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 46px;
+  align-items: start;
+  padding-top: 36px;
+}
+
+.control-sidebar nav {
+  display: grid;
+  gap: 8px;
+}
+
+.control-nav-item {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #9299a5;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.control-nav-item:hover {
+  color: #e4e4e7;
+  background: #12151a;
+}
+
+.control-nav-item.active {
+  border-color: #303640;
+  background: #1a1e24;
+  color: #f4f4f5;
+}
+
+.control-sidebar-note {
+  margin: 28px 12px 0;
+  color: #737b87;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.control-content {
+  min-width: 0;
+}
+
+.admin-view {
+  min-width: 0;
+  padding: 9px 0 10px;
+}
+
+.control-heading {
+  margin-bottom: 30px;
+}
+
+.control-heading h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(36px, 4vw, 48px);
+  line-height: 1.04;
+  letter-spacing: -2px;
+}
+
+.control-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.control-summary-card,
+.overview-panel {
+  border: 1px solid #292f38;
+  border-radius: 13px;
+  background: #12151a;
+}
+
+.control-summary-card {
+  min-width: 0;
+  padding: 19px 20px;
+}
+
+.control-summary-card > span,
+.deployment-inline-summary span,
+.platform-facts span {
+  display: block;
+  color: #717986;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+}
+
+.control-summary-card > strong {
+  display: block;
+  margin-top: 12px;
+  color: #f4f4f5;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.control-summary-card small {
+  display: block;
+  margin-top: 10px;
+  color: #737b87;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.overview-grid,
+.deployment-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-panel {
+  min-width: 0;
+  padding: 20px;
+}
+
+.overview-panel h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.4px;
+}
+
+.runtime-list {
+  display: grid;
+  margin-top: 17px;
+}
+
+.runtime-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 0;
+  border-top: 1px solid #252a32;
+  color: #a1a8b3;
+  font-size: 12px;
+}
+
+.runtime-row strong {
+  color: #e4e4e7;
+}
+
+.overview-muted {
+  margin: 17px 0 0;
+  color: #737b87;
+  font-size: 12px;
+}
+
+.platform-facts {
+  display: grid;
+  margin-top: 17px;
+}
+
+.platform-facts > div {
+  padding: 11px 0;
+  border-top: 1px solid #252a32;
+}
+
+.platform-facts strong {
+  display: block;
+  margin-top: 5px;
+  color: #d5d8dd;
+  font-size: 12px;
+}
+
+.overview-apps {
+  margin-top: 34px;
+}
+
+.overview-app-list {
+  overflow: hidden;
+  border: 1px solid #292f38;
+  border-radius: 13px;
+  background: #12151a;
+}
+
+.overview-app-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 17px;
+  border-bottom: 1px solid #252a32;
+}
+
+.overview-app-row:last-child {
+  border-bottom: 0;
+}
+
+.overview-app-name {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.overview-app-name strong,
+.overview-app-name small {
+  display: block;
+}
+
+.overview-app-name strong {
+  color: #e4e4e7;
+  font-size: 12px;
+}
+
+.overview-app-name small {
+  margin-top: 3px;
+  color: #717986;
+  font-size: 10px;
+}
+
+.overview-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.overview-status.live {
+  color: #86efac;
+}
+
+.overview-status.down {
+  color: #fda4af;
+}
+
+.deployment-guide-grid {
+  margin-bottom: 22px;
+}
+
+.supported-runtime-list {
+  display: grid;
+  margin-top: 17px;
+}
+
+.supported-runtime-list > div {
+  padding: 11px 0;
+  border-top: 1px solid #252a32;
+}
+
+.supported-runtime-list strong,
+.supported-runtime-list span {
+  display: block;
+}
+
+.supported-runtime-list strong {
+  color: #d5d8dd;
+  font-size: 12px;
+}
+
+.supported-runtime-list span {
+  margin-top: 4px;
+  color: #737b87;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.guide-copy {
+  margin: 17px 0 0;
+  color: #8b939f;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.guide-rule {
+  margin-top: 18px;
+  padding: 11px 12px;
+  border: 1px solid #303640;
+  border-radius: 8px;
+  background: #0d1014;
+  color: #a7adb7;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.deployments-heading {
+  margin-bottom: 24px;
+}
+
+.deployment-inline-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 27px;
+  overflow: hidden;
+  border: 1px solid #292f38;
+  border-radius: 12px;
+  background: #12151a;
+}
+
+.deployment-inline-summary > div {
+  min-width: 0;
+  padding: 16px 18px;
+  border-right: 1px solid #292f38;
+  text-align: center;
+}
+
+.deployment-inline-summary > div:last-child {
+  border-right: 0;
+}
+
+.deployment-inline-summary strong {
+  display: block;
+  margin-top: 7px;
+  color: #e4e4e7;
+  font-size: 18px;
+}
+
+.admin-view .deploy-panel {
+  margin-bottom: 24px;
+}
+
+.admin-view .deployment-section {
+  margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .control-layout {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding-top: 28px;
+  }
+
+  .control-sidebar {
+    padding-bottom: 22px;
+    border-bottom: 1px solid #22262d;
+  }
+
+  .control-sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .control-nav-item {
+    width: auto;
+  }
+
+  .control-sidebar-note {
+    max-width: 520px;
+    margin: 18px 0 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .control-summary-grid,
+  .overview-grid,
+  .deployment-guide-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .control-heading h1 {
+    font-size: 36px;
+    letter-spacing: -1.5px;
+  }
+
+  .deployment-inline-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .deployment-inline-summary > div {
+    min-width: 0;
+  }
+}

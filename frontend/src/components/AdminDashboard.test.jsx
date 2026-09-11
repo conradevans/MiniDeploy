@@ -65,7 +65,9 @@ describe('MiniDeploy operation feedback', () => {
         }),
       ),
     })
+    window.history.replaceState({}, '', '/admin')
     render(<AdminDashboard api={api} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Deployments' }))
 
     const alpha = (await screen.findByRole('heading', {
       name: 'alpha-app',
@@ -104,7 +106,9 @@ describe('MiniDeploy operation feedback', () => {
         new Error('restart request failed'),
       ),
     })
+    window.history.replaceState({}, '', '/admin')
     render(<AdminDashboard api={api} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Deployments' }))
     const alpha = (await screen.findByRole('heading', {
       name: 'alpha-app',
     })).closest('article')

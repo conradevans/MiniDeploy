@@ -1,4 +1,4 @@
-export default function Brand({ subtitle, href = '/' }) {
+export default function Brand({ href = '/' }) {
   return (
     <a
       aria-label="MiniDeploy home"
@@ -6,13 +6,10 @@ export default function Brand({ subtitle, href = '/' }) {
       href={href}
     >
       <span className="brand-mark" aria-hidden="true">
-        M
+        D
       </span>
 
-      <span>
-        <strong className="brand-name">MiniDeploy</strong>
-        <span className="brand-subtitle">{subtitle}</span>
-      </span>
+      <strong className="brand-name">MiniDeploy</strong>
     </a>
   )
 }

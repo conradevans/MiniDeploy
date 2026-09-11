@@ -4,25 +4,43 @@ import { describe, expect, test } from 'vitest'
 import PublicHome from './PublicHome'
 
 describe('public landing page', () => {
-  test('explains MiniDeploy and offers both intended entry paths', () => {
+  test('explains exact supported strategies and both intended entry paths', () => {
     render(<PublicHome />)
 
     expect(
       screen.getByRole('heading', {
-        name: /Ship software on.*infrastructure you own/i,
+        name: /Run supported application repositories on your own server/i,
       }),
     ).toBeTruthy()
 
     expect(
-      screen.getByRole('link', { name: /Continue as Guest/i }).href,
+      screen.getByRole('link', { name: /Guest Overview/i }).href,
     ).toContain('/guest/')
 
-    const adminLinks = screen.getAllByRole('link', {
-      name: /Admin Sign In/i,
-    })
-
-    expect(adminLinks.every((link) => link.href.includes('/admin/'))).toBe(
-      true,
-    )
+    expect(
+      screen.getByRole('link', { name: /Open Administrator/i }).href,
+    ).toContain('/admin/')
+    expect(screen.getByText('What it does')).toBeTruthy()
+    expect(screen.getByText('How it works')).toBeTruthy()
+    expect(screen.getByText('Why it is useful')).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: 'Currently supported' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Dockerfile' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Vite' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Node + Express' })).toBeTruthy()
+    expect(
+      screen.getByRole('heading', { name: 'Vite + Node/Express' }),
+    ).toBeTruthy()
+    expect(screen.getByText(/Dockerfile is the escape hatch/)).toBeTruthy()
+    expect(
+      screen.getByText(/MiniBase attachment currently targets the Node\/Express backend paths/),
+    ).toBeTruthy()
+    expect(
+      screen.getByText(/Administrator access opens deployment and lifecycle controls/),
+    ).toBeTruthy()
+    expect(
+      screen.queryByText(/Administrator access is protected by Cloudflare Access/),
+    ).toBeNull()
   })
 })

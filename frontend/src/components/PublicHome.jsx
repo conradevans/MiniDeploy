@@ -1,134 +1,90 @@
-import Brand from './Brand'
-import ProductNav from './ProductNav'
-
-const platformSteps = [
-  ['01', 'Source', 'Git push received'],
-  ['02', 'Build', 'Container image created'],
-  ['03', 'Verify', 'Health checks passed'],
-  ['04', 'Publish', 'Traffic switched safely'],
-]
+import GlobalHeader from './GlobalHeader'
 
 export default function PublicHome() {
   return (
     <main className="public-page">
-      <div className="public-glow" aria-hidden="true" />
-
       <div className="site-shell">
-        <header className="public-nav">
-          <Brand subtitle="A ReactorLab project" />
-
-          <div className="public-nav-actions">
-            <ProductNav mode="root" />
-            <span className="availability-badge">
-              <span className="status-dot live" />
-              Platform online
-            </span>
-
-            <a className="nav-link" href="/admin/">
-              Admin Sign In
-            </a>
-          </div>
-        </header>
+        <GlobalHeader mode="root" />
 
         <section className="landing-hero">
           <div className="landing-copy">
-            <p className="hero-kicker">
-              SELF-HOSTED DEPLOYMENT PLATFORM
-            </p>
-
-            <h1 aria-label="Ship software on infrastructure you own.">
-              Ship software on
-              <span> infrastructure you own.</span>
-            </h1>
-
+            <p className="hero-kicker">MINIDEPLOY</p>
+            <h1>Run supported application repositories on your own server.</h1>
             <p className="landing-summary">
-              MiniDeploy turns Git repositories into healthy, routed
-              applications—with zero-downtime releases, automatic recovery,
-              and a control plane built from first principles.
+              MiniDeploy turns supported repositories into self-hosted
+              applications on the Dell, using a consistent deployment and
+              routing process instead of repeated manual container work.
             </p>
 
-            <div className="landing-actions">
-              <a className="button primary large" href="/guest/">
-                Continue as Guest
-                <span aria-hidden="true">→</span>
-              </a>
+            <dl className="access-explanation">
+              <div>
+                <dt>What it does</dt>
+                <dd>Builds and runs supported applications as managed deployments.</dd>
+              </div>
+              <div>
+                <dt>How it works</dt>
+                <dd>Uses MiniDeploy's existing deployment strategies, manages runtime state, publishes routes through ReactorLab infrastructure, and provides supported restart, redeploy, and rollback operations.</dd>
+              </div>
+              <div>
+                <dt>Why it is useful</dt>
+                <dd>Removes repetitive server and container setup. Supported MiniBase applications can also receive a managed database connection without manually handling database credentials.</dd>
+              </div>
+            </dl>
 
-              <a className="button secondary large" href="/admin/">
-                Admin Sign In
-              </a>
-            </div>
-
-            <p className="landing-note">
-              Guest access is public and read-only. Administrator access is
-              protected by Cloudflare Access.
-            </p>
+            <section
+              className="supported-strategies"
+              aria-labelledby="supported-strategies-title"
+            >
+              <h2 id="supported-strategies-title">Currently supported</h2>
+              <div className="supported-strategy-grid">
+                <article>
+                  <h3>Dockerfile</h3>
+                  <p>Run applications that provide a working deployment container definition.</p>
+                </article>
+                <article>
+                  <h3>Vite</h3>
+                  <p>Static Vite frontends can be detected and built automatically.</p>
+                </article>
+                <article>
+                  <h3>Node + Express</h3>
+                  <p>Conventional Node.js and Express services can be detected and deployed automatically.</p>
+                </article>
+                <article>
+                  <h3>Vite + Node/Express</h3>
+                  <p>Supported full-stack repositories can deploy frontend and backend together.</p>
+                </article>
+              </div>
+              <p className="supported-strategy-note">
+                Automatic detection targets these Vite and conventional
+                Node/Express shapes. A repository Dockerfile is the escape
+                hatch for other stacks; MiniBase attachment currently targets
+                the Node/Express backend paths.
+              </p>
+            </section>
           </div>
 
-          <div className="platform-preview" aria-label="Deployment pipeline">
-            <div className="preview-toolbar">
-              <span className="preview-label">LIVE DELIVERY PIPELINE</span>
-              <span className="preview-pulse">READY</span>
-            </div>
-
-            <div className="pipeline-list">
-              {platformSteps.map(([number, title, detail], index) => (
-                <div className="pipeline-step" key={title}>
-                  <span className="pipeline-number">{number}</span>
-
-                  <span className="pipeline-copy">
-                    <strong>{title}</strong>
-                    <small>{detail}</small>
-                  </span>
-
-                  <span
-                    className={`pipeline-state ${index === 3 ? 'active' : ''}`}
-                  >
-                    {index === 3 ? 'LIVE' : 'DONE'}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="preview-route">
-              <span>PUBLIC ROUTE</span>
-              <strong>*.reactorlab.dev</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="capability-grid" aria-label="Platform capabilities">
-          <article>
-            <span className="capability-index">01</span>
-            <h2>Safe releases</h2>
+          <aside className="access-card">
+            <p className="eyebrow">CHOOSE ACCESS</p>
+            <h2>Open MiniDeploy</h2>
             <p>
-              Candidate containers are built and checked before live traffic
-              moves. Failed releases leave the healthy version untouched.
+              Administrator access opens deployment and lifecycle controls.
+              Guest access provides a restricted, read-only view of public
+              application availability.
             </p>
-          </article>
-
-          <article>
-            <span className="capability-index">02</span>
-            <h2>Private by default</h2>
-            <p>
-              Workloads bind to loopback, public traffic enters through a
-              secure tunnel, and administration stays behind a distinct trust
-              boundary.
-            </p>
-          </article>
-
-          <article>
-            <span className="capability-index">03</span>
-            <h2>Built to recover</h2>
-            <p>
-              Health validation, version history, zero-downtime rollback, and
-              persistent activity records make recovery a first-class path.
-            </p>
-          </article>
+            <div className="access-actions">
+              <a className="button primary" href="/admin/">
+                Open Administrator
+              </a>
+              <a className="button secondary" href="/guest/">
+                Guest Overview
+              </a>
+            </div>
+          </aside>
         </section>
 
         <footer className="public-footer">
-          <span>MiniDeploy · Designed and operated by ReactorLab</span>
-          <span>Go · React · Docker · Caddy · Cloudflare</span>
+          <span>MiniDeploy · ReactorLab deployment control plane</span>
+          <span>Self-hosted on the Dell</span>
         </footer>
       </div>
     </main>

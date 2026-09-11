@@ -6,6 +6,16 @@ import DeploymentCard from './DeploymentCard'
 afterEach(cleanup)
 
 describe('DeploymentCard', () => {
+  const handlers = {
+    onLogs: vi.fn(),
+    onDeployLogs: vi.fn(),
+    onRestart: vi.fn(),
+    onRedeploy: vi.fn(),
+    onHistory: vi.fn(),
+    onRollback: vi.fn(),
+    onDelete: vi.fn(),
+  }
+
   test('shows configured runtime names without rendering values', () => {
     const secretValue = ['NEVER', 'RENDER', 'THIS'].join('_')
 
@@ -96,5 +106,39 @@ describe('DeploymentCard', () => {
     expect(screen.getByText('ACCEPTANCE_MESSAGE')).not.toBeNull()
     expect(screen.queryByText(secretValue)).toBeNull()
     expect(screen.getAllByRole('link', { name: 'Open' })).toHaveLength(1)
+  })
+
+  test.each([
+    ['restart', 'Restarting…'],
+    ['redeploy', 'Redeploying…'],
+    ['rollback', 'Rolling back…'],
+    ['delete', 'Deleting…'],
+  ])('shows action-specific %s feedback in place', (action, label) => {
+    render(
+      <DeploymentCard
+        deployment={{
+          app: 'operation-app',
+          repoUrl: 'https://github.com/example/operation-app.git',
+          status: 'running',
+        }}
+        operation={{ action, phase: 'pending' }}
+        {...handlers}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: label }).disabled).toBe(true)
+    const activeLabel = {
+      restart: 'Restart',
+      redeploy: 'Redeploy',
+      rollback: 'Rollback',
+      delete: 'Delete',
+    }[action]
+    for (const other of ['Restart', 'Redeploy', 'Rollback', 'Delete']) {
+      if (other !== activeLabel) {
+        expect(screen.queryByRole('button', { name: other })?.disabled).toBe(
+          true,
+        )
+      }
+    }
   })
 })

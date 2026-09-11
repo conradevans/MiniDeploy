@@ -23,7 +23,7 @@ function strategyLabel(strategy) {
 
 export default function DeploymentCard({
   deployment,
-  busy,
+  operation,
   onLogs,
   onDeployLogs,
   onRestart,
@@ -54,6 +54,28 @@ export default function DeploymentCard({
 		(attachment) => attachment?.bindingName === 'primary' &&
 			typeof attachment.displayName === 'string',
 	)
+  const busy = operation?.phase === 'pending'
+
+  function actionPresentation(action, label, pendingLabel) {
+    if (operation?.action !== action) {
+      return { label, className: '' }
+    }
+    switch (operation.phase) {
+      case 'pending':
+        return { label: pendingLabel, className: 'operation-pending' }
+      case 'success':
+        return { label: 'Success', className: 'operation-success' }
+      case 'failed':
+        return { label: 'Failed', className: 'operation-failed' }
+      default:
+        return { label, className: '' }
+    }
+  }
+
+  const restart = actionPresentation('restart', 'Restart', 'Restarting…')
+  const redeploy = actionPresentation('redeploy', 'Redeploy', 'Redeploying…')
+  const rollback = actionPresentation('rollback', 'Rollback', 'Rolling back…')
+  const remove = actionPresentation('delete', 'Delete', 'Deleting…')
 
   return (
     <article className="deployment-card">
@@ -228,58 +250,62 @@ export default function DeploymentCard({
 
         <button
           className="button secondary"
+          type="button"
           onClick={() => onLogs(deployment.app)}
-          disabled={busy}
         >
           Logs
         </button>
 
         <button
           className="button secondary"
+          type="button"
           onClick={() => onDeployLogs(deployment.app)}
-          disabled={busy}
         >
           Deploy Logs
         </button>
 
         <button
-          className="button secondary"
+          type="button"
+          className={'button secondary operation-feedback ' + restart.className}
           onClick={() => onRestart(deployment.app)}
-          disabled={busy}
+          disabled={busy || operation?.action === 'restart'}
         >
-          Restart
+          {restart.label}
         </button>
 
         <button
-          className="button secondary"
+          type="button"
+          className={'button secondary operation-feedback ' + redeploy.className}
           onClick={() => onRedeploy(deployment.app)}
-          disabled={busy}
+          disabled={busy || operation?.action === 'redeploy'}
         >
-          Redeploy
+          {redeploy.label}
         </button>
 
         <button
           className="button secondary"
+          type="button"
           onClick={() => onHistory(deployment.app)}
-          disabled={busy}
         >
           History
         </button>
 
         <button
-          className="button secondary"
+          type="button"
+          className={'button secondary operation-feedback ' + rollback.className}
           onClick={() => onRollback(deployment.app)}
-          disabled={busy}
+          disabled={busy || operation?.action === 'rollback'}
         >
-          Rollback
+          {rollback.label}
         </button>
 
         <button
-          className="button danger"
+          type="button"
+          className={'button danger operation-feedback ' + remove.className}
           onClick={() => onDelete(deployment.app)}
-          disabled={busy}
+          disabled={busy || operation?.action === 'delete'}
         >
-          Delete
+          {remove.label}
         </button>
       </div>
     </article>

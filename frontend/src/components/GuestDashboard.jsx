@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { createGuestApi } from '../api/guest'
-import Brand from './Brand'
-import ProductNav from './ProductNav'
+import GlobalHeader from './GlobalHeader'
 import GuestDeploymentCard from './GuestDeploymentCard'
 
 export default function GuestDashboard({ api: providedApi = null }) {
@@ -41,16 +40,7 @@ export default function GuestDashboard({ api: providedApi = null }) {
   return (
     <main className="guest-page">
       <div className="site-shell">
-        <header className="public-nav guest-nav">
-          <Brand subtitle="Public platform view" />
-
-          <div className="public-nav-actions">
-            <ProductNav mode="guest" />
-            <a className="button secondary" href="/">
-              Switch access
-            </a>
-          </div>
-        </header>
+        <GlobalHeader mode="guest" sessionLabel="Guest View" />
 
         <section className="guest-hero">
           <div>

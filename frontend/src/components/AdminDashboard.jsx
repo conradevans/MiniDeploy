@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createAdminApi } from '../api/admin'
-import Brand from './Brand'
-import ProductNav from './ProductNav'
+import GlobalHeader from './GlobalHeader'
 import DeployForm from './DeployForm'
 import DeploymentCard from './DeploymentCard'
 import HistoryList from './HistoryList'
 import Modal from './Modal'
 
-export default function AdminDashboard({ apiMode }) {
-  const api = useMemo(() => createAdminApi(apiMode), [apiMode])
+export default function AdminDashboard({ apiMode, api: providedApi = null }) {
+  const api = useMemo(
+    () => providedApi || createAdminApi(apiMode),
+    [apiMode, providedApi],
+  )
   const [deployments, setDeployments] = useState([])
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [busyApp, setBusyApp] = useState('')
+  const [operations, setOperations] = useState({})
   const [deploying, setDeploying] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -23,16 +25,32 @@ export default function AdminDashboard({ apiMode }) {
     content: '',
     versions: [],
   })
+  const feedbackTimers = useRef(new Map())
+  const mounted = useRef(true)
+
+  useEffect(() => {
+    mounted.current = true
+    const timers = feedbackTimers.current
+    return () => {
+      mounted.current = false
+      for (const timer of timers.values()) {
+        window.clearTimeout(timer)
+      }
+      timers.clear()
+    }
+  }, [])
 
   const loadDeployments = useCallback(async () => {
     try {
       const result = await api.getDeployments()
+      if (!mounted.current) return
       setDeployments(Array.isArray(result) ? result : [])
       setError('')
     } catch (err) {
+      if (!mounted.current) return
       setError(`Failed to load deployments: ${err.message}`)
     } finally {
-      setLoading(false)
+      if (mounted.current) setLoading(false)
     }
   }, [api])
 
@@ -88,19 +106,63 @@ export default function AdminDashboard({ apiMode }) {
     }
   }
 
-  async function performAction(app, action, successMessage) {
-    setBusyApp(app)
+  function clearOperation(app) {
+    setOperations((current) => {
+      const next = { ...current }
+      delete next[app]
+      return next
+    })
+  }
+
+  function showOperationFeedback(app, actionName, phase) {
+    setOperations((current) => ({
+      ...current,
+      [app]: { action: actionName, phase },
+    }))
+
+    const existingTimer = feedbackTimers.current.get(app)
+    if (existingTimer) window.clearTimeout(existingTimer)
+    const timer = window.setTimeout(() => {
+      feedbackTimers.current.delete(app)
+      if (mounted.current) clearOperation(app)
+    }, 3000)
+    feedbackTimers.current.set(app, timer)
+  }
+
+  async function performAction(
+    app,
+    actionName,
+    action,
+    successMessage,
+    { removeOnSuccess = false } = {},
+  ) {
+    const existingTimer = feedbackTimers.current.get(app)
+    if (existingTimer) {
+      window.clearTimeout(existingTimer)
+      feedbackTimers.current.delete(app)
+    }
+    setOperations((current) => ({
+      ...current,
+      [app]: { action: actionName, phase: 'pending' },
+    }))
     setNotice('')
     setError('')
 
     try {
       await action(app)
+      if (!mounted.current) return
       setNotice(successMessage)
       await loadDeployments()
+      if (!mounted.current) return
+      if (removeOnSuccess) {
+        clearOperation(app)
+      } else {
+        showOperationFeedback(app, actionName, 'success')
+      }
     } catch (err) {
+      if (!mounted.current) return
       setError(err.message)
-    } finally {
-      setBusyApp('')
+      showOperationFeedback(app, actionName, 'failed')
     }
   }
 
@@ -141,7 +203,13 @@ export default function AdminDashboard({ apiMode }) {
       return
     }
 
-    performAction(app, api.deleteApplication, `${app} deleted.`)
+    performAction(
+      app,
+      'delete',
+      api.deleteApplication,
+      `${app} deleted.`,
+      { removeOnSuccess: true },
+    )
   }
 
   function handleRollback(app) {
@@ -151,6 +219,7 @@ export default function AdminDashboard({ apiMode }) {
 
     performAction(
       app,
+      'rollback',
       api.rollbackApplication,
       `${app} rolled back successfully.`,
     )
@@ -163,30 +232,10 @@ export default function AdminDashboard({ apiMode }) {
   return (
     <>
       <main className="app-shell admin-shell">
-        <header className="topbar">
-          <Brand subtitle="ReactorLab deployment control plane" />
-
-          <div className="ecosystem-actions">
-            <ProductNav mode="admin" />
-            <a className="button secondary switch-access-link" href="/">
-              Switch access
-            </a>
-            <div className="admin-identity">
-            <span className="status-dot live" />
-            <span>
-              <small>
-                {api.supportsSession ? 'ACCESS SESSION' : 'PRIVATE SESSION'}
-              </small>
-              <strong>
-                {session?.email ||
-                  (api.supportsSession
-                    ? 'Authenticated administrator'
-                    : 'SSH emergency access')}
-              </strong>
-            </span>
-            </div>
-          </div>
-        </header>
+        <GlobalHeader
+          mode="admin"
+          sessionLabel={session?.email ? `Admin · ${session.email}` : 'Admin'}
+        />
 
         <section className="hero admin-hero">
           <div>
@@ -257,12 +306,13 @@ export default function AdminDashboard({ apiMode }) {
                 <DeploymentCard
                   key={deployment.app}
                   deployment={deployment}
-                  busy={busyApp === deployment.app}
+                  operation={operations[deployment.app] || null}
                   onLogs={(app) => showLogs(app, false)}
                   onDeployLogs={(app) => showLogs(app, true)}
                   onRestart={(app) =>
                     performAction(
                       app,
+                      'restart',
                       api.restartApplication,
                       `${app} restarted.`,
                     )
@@ -270,6 +320,7 @@ export default function AdminDashboard({ apiMode }) {
                   onRedeploy={(app) =>
                     performAction(
                       app,
+                      'redeploy',
                       api.redeployApplication,
                       `${app} redeployed successfully.`,
                     )

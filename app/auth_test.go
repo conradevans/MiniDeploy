@@ -299,6 +299,7 @@ func TestEveryPublicAdminRouteRequiresAccess(
 		{http.MethodPost, "/api/admin/deployments/app/restart"},
 		{http.MethodPost, "/api/admin/deployments/app/redeploy"},
 		{http.MethodPost, "/api/admin/deployments/app/rollback"},
+		{http.MethodPatch, "/api/admin/deployments/app/visibility"},
 		{http.MethodDelete, "/api/admin/deployments/app"},
 		{http.MethodGet, "/api/admin/future-route"},
 	}

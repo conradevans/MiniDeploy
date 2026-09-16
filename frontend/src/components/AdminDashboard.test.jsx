@@ -20,6 +20,7 @@ const deployments = [
     healthPath: '/health',
     strategy: 'node-express',
     status: 'running',
+    guestVisible: true,
   },
   {
     app: 'beta-app',
@@ -30,6 +31,7 @@ const deployments = [
     healthPath: '/health',
     strategy: 'node-express',
     status: 'running',
+    guestVisible: false,
   },
 ]
 
@@ -44,6 +46,9 @@ function makeApi(overrides = {}) {
     getHistory: vi.fn(),
     restartApplication: vi.fn().mockResolvedValue({}),
     redeployApplication: vi.fn().mockResolvedValue({}),
+    updateGuestVisibility: vi.fn(async (_app, guestVisible) => ({
+      guestVisible,
+    })),
     rollbackApplication: vi.fn().mockResolvedValue({}),
     deleteApplication: vi.fn().mockResolvedValue({}),
     ...overrides,
@@ -125,5 +130,80 @@ describe('MiniDeploy operation feedback', () => {
       await vi.advanceTimersByTimeAsync(3000)
     })
     expect(within(alpha).getByRole('button', { name: 'Restart' })).toBeTruthy()
+  })
+})
+
+describe('MiniDeploy Guest View visibility', () => {
+  test('renders every deployment and saves an accessible optimistic toggle', async () => {
+    let finishUpdate
+    const api = makeApi({
+      updateGuestVisibility: vi.fn(
+        () => new Promise((resolve) => {
+          finishUpdate = resolve
+        }),
+      ),
+    })
+    window.history.replaceState({}, '', '/admin/visibility')
+    render(<AdminDashboard api={api} />)
+
+    expect(screen.getByRole('button', { name: 'Visibility' })).toBeTruthy()
+    expect(await screen.findByText('alpha-app')).toBeTruthy()
+    expect(screen.getByText('beta-app')).toBeTruthy()
+    expect(screen.getByText('Visible in Guest View')).toBeTruthy()
+    expect(screen.getByText('Hidden from Guest View')).toBeTruthy()
+
+    const alphaSwitch = screen.getByRole('switch', {
+      name: 'List alpha-app in Guest View',
+    })
+    const betaSwitch = screen.getByRole('switch', {
+      name: 'List beta-app in Guest View',
+    })
+    expect(alphaSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(betaSwitch.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(betaSwitch)
+    expect(betaSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(betaSwitch.disabled).toBe(true)
+    expect(screen.getByText('Saving…')).toBeTruthy()
+
+    await act(async () => {
+      finishUpdate({ guestVisible: true })
+      await Promise.resolve()
+    })
+
+    expect(api.updateGuestVisibility).toHaveBeenCalledWith('beta-app', true)
+    expect(betaSwitch.getAttribute('aria-checked')).toBe('true')
+    expect(betaSwitch.disabled).toBe(false)
+    expect(
+      screen.getByText('beta-app is now visible in Guest View.'),
+    ).toBeTruthy()
+  })
+
+  test('reverts the switch and shows a concise error when saving fails', async () => {
+    const api = makeApi({
+      updateGuestVisibility: vi.fn().mockRejectedValue(
+        new Error('visibility request failed'),
+      ),
+    })
+    window.history.replaceState({}, '', '/admin/visibility')
+    render(<AdminDashboard api={api} />)
+
+    const betaSwitch = await screen.findByRole('switch', {
+      name: 'List beta-app in Guest View',
+    })
+
+    await act(async () => {
+      fireEvent.click(betaSwitch)
+      await Promise.resolve()
+    })
+
+    expect(betaSwitch.getAttribute('aria-checked')).toBe('false')
+    expect(betaSwitch.disabled).toBe(false)
+    expect(screen.getByText('Hidden from Guest View')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Failed to update beta-app visibility: visibility request failed',
+      ),
+    ).toBeTruthy()
   })
 })

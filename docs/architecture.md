@@ -488,13 +488,26 @@ GET /guest/*
 GET /api/guest/deployments
 ```
 
-Guest data is constructed as `GuestDeploymentResponse`, not serialized from `DeploymentRecord`. Its JSON contract is exactly:
+Guest data is constructed from guest-safe response types, not serialized from `DeploymentRecord`:
 
-```text
-app
-url
-status
+```json
+{
+  "summary": {
+    "total": 7,
+    "showing": 2,
+    "hidden": 5
+  },
+  "deployments": [
+    {
+      "app": "example-app",
+      "url": "https://example-app.reactorlab.dev",
+      "status": "running"
+    }
+  ]
+}
 ```
+
+`total` includes all deployments, `showing` counts deployments listed in Guest View, and `hidden` counts deployments omitted from the listing. The detailed array contains only visible deployments, with exactly `app`, `url`, and `status` for each item. Hidden applications remain reachable through their direct URLs; visibility controls Guest View listing, not application access.
 
 There are no guest mutation, logs, history, repository, image, container, port, or health-configuration routes.
 
@@ -509,6 +522,8 @@ Cloudflare Access and the Go backend both guard:
 /api/admin/*
 ```
 
+This protected tree includes `PATCH /api/admin/deployments/{app}/visibility`.
+
 The backend accepts authority only from `Cf-Access-Jwt-Assertion` after cryptographic verification. A plain identity header, malformed token, wrong signature, wrong issuer, wrong audience, expired token, premature token, missing email, or non-matching email is rejected. Route-prefix protection also covers future admin subroutes before they reach the router.
 
 ### Emergency Management Plane
@@ -518,6 +533,8 @@ Private:
 ```text
 127.0.0.1:9000
 ```
+
+The intentional local management API includes `PATCH /deployments/{app}/visibility`.
 
 Remote access requires SSH key authentication and port forwarding. This listener retains the original full-management routes and remains available if Cloudflare Access, the tunnel, or the public listener is unavailable.
 

@@ -272,12 +272,16 @@ func (h *fullstackLifecycleHarness) requireOldStillActive(t *testing.T) {
 
 func TestFullstackRedeployClonesOnceBuildsBothAndCutsOver(t *testing.T) {
 	h := newFullstackLifecycleHarness(t)
+	h.old.GuestVisible = true
 	record, err := safeRedeploy(h.old, nil)
 	if err != nil {
 		t.Fatalf("safeRedeploy() error: %v", err)
 	}
 	if h.commands.cloneCount != 1 {
 		t.Fatalf("clone count = %d; want 1", h.commands.cloneCount)
+	}
+	if !record.GuestVisible {
+		t.Fatal("manual redeploy lost Guest View visibility")
 	}
 	if len(h.buildDirs) != 2 ||
 		filepath.Base(h.buildDirs[0]) != "frontend" ||
@@ -461,6 +465,17 @@ func (s *rejectingCandidateStore) Save(record DeploymentRecord) error {
 	return nil
 }
 
+func (s *rejectingCandidateStore) UpdateGuestVisibility(
+	app string,
+	visible bool,
+) (DeploymentRecord, error) {
+	if app != s.old.App {
+		return DeploymentRecord{}, ErrDeploymentNotFound
+	}
+	s.old.GuestVisible = visible
+	return s.old, nil
+}
+
 func (s *rejectingCandidateStore) Get(app string) (DeploymentRecord, error) {
 	if app != s.old.App {
 		return DeploymentRecord{}, ErrDeploymentNotFound
@@ -568,6 +583,7 @@ func TestFullstackRedeployReplacesAndClearsBackendEnvironment(t *testing.T) {
 
 func TestFullstackRollbackRestoresPairedImagesWithCurrentEnvironment(t *testing.T) {
 	h := newFullstackLifecycleHarness(t)
+	h.old.GuestVisible = true
 	previous := fullstackTestRecord(h.app, "previous")
 	previous.RepoURL = h.repo
 	if _, err := historyStore.Push(previous); err != nil {
@@ -580,6 +596,9 @@ func TestFullstackRollbackRestoresPairedImagesWithCurrentEnvironment(t *testing.
 	}
 	if h.syncCount != 1 {
 		t.Fatalf("Caddy sync count = %d; want 1", h.syncCount)
+	}
+	if !record.GuestVisible {
+		t.Fatal("rollback lost current Guest View visibility")
 	}
 	for _, name := range []string{"frontend", "backend"} {
 		want, _ := deploymentServiceByName(previous, name)
@@ -654,6 +673,7 @@ func TestFullstackDeleteRemovesOnlyProjectResources(t *testing.T) {
 
 func TestWebhookRedeploysWholeFullstackProjectAndPreservesEnvironment(t *testing.T) {
 	h := newFullstackLifecycleHarness(t)
+	h.old.GuestVisible = true
 	selected, ok := deploymentForWebhook(
 		[]DeploymentRecord{h.old},
 		h.repo,
@@ -674,6 +694,9 @@ func TestWebhookRedeploysWholeFullstackProjectAndPreservesEnvironment(t *testing
 			h.commands.cloneCount,
 			len(redeployed.Services),
 		)
+	}
+	if !redeployed.GuestVisible {
+		t.Fatal("webhook redeploy lost Guest View visibility")
 	}
 	environment, err := runtimeEnvironmentStore.Load(h.app)
 	if err != nil || environment["ACCEPTANCE_MESSAGE"] != "CURRENT_SECRET_SENTINEL" {

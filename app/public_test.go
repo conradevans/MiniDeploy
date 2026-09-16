@@ -22,6 +22,18 @@ func (s staticDeploymentStore) Save(
 	return s.err
 }
 
+func (s staticDeploymentStore) UpdateGuestVisibility(
+	app string,
+	visible bool,
+) (DeploymentRecord, error) {
+	record, err := s.Get(app)
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+	record.GuestVisible = visible
+	return record, nil
+}
+
 func (s staticDeploymentStore) Get(
 	app string,
 ) (DeploymentRecord, error) {
@@ -77,7 +89,7 @@ func TestGuestDeploymentsWorkWithoutAuthentication(
 		)
 	}
 
-	if recorder.Body.String() != "[]\n" {
+	if recorder.Body.String() != "{\"summary\":{\"total\":0,\"showing\":0,\"hidden\":0},\"deployments\":[]}\n" {
 		t.Fatalf(
 			"unexpected guest response: %s",
 			recorder.Body.String(),

@@ -19,6 +19,7 @@ async function exerciseAdminApi(api) {
   await api.getHistory('demo app')
   await api.restartApplication('demo app')
   await api.redeployApplication('demo app')
+  await api.updateGuestVisibility('demo app', true)
   await api.rollbackApplication('demo app')
   await api.deleteApplication('demo app')
 }
@@ -41,6 +42,7 @@ describe('public admin API', () => {
       '/api/admin/deployments/demo%20app/history',
       '/api/admin/deployments/demo%20app/restart',
       '/api/admin/deployments/demo%20app/redeploy',
+      '/api/admin/deployments/demo%20app/visibility',
       '/api/admin/deployments/demo%20app/rollback',
       '/api/admin/deployments/demo%20app',
     ])
@@ -65,8 +67,18 @@ describe('private admin API', () => {
       '/deployments/demo%20app/history',
       '/deployments/demo%20app/restart',
       '/deployments/demo%20app/redeploy',
+      '/deployments/demo%20app/visibility',
       '/deployments/demo%20app/rollback',
       '/deployments/demo%20app',
     ])
+
+    const visibilityRequest = requester.mock.calls.find(
+      ([path]) => path.endsWith('/visibility'),
+    )
+    expect(visibilityRequest[1]).toEqual({
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestVisible: true }),
+    })
   })
 })

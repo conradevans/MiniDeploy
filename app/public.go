@@ -37,6 +37,10 @@ func guestDeploymentsHandler(
 	)
 
 	for _, record := range records {
+		if !record.GuestVisible {
+			continue
+		}
+
 		response, err := guestDeploymentResponse(
 			record,
 			deploymentProjectStatus(record),
@@ -57,7 +61,14 @@ func guestDeploymentsHandler(
 		deployments = append(deployments, response)
 	}
 
-	writeJSON(w, http.StatusOK, deployments)
+	writeJSON(w, http.StatusOK, GuestDeploymentsResponse{
+		Summary: GuestDeploymentSummary{
+			Total:   len(records),
+			Showing: len(deployments),
+			Hidden:  len(records) - len(deployments),
+		},
+		Deployments: deployments,
+	})
 }
 
 func guestDeploymentResponse(

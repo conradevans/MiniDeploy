@@ -10,6 +10,17 @@ type GuestDeploymentResponse struct {
 	Status string `json:"status"`
 }
 
+type GuestDeploymentSummary struct {
+	Total   int `json:"total"`
+	Showing int `json:"showing"`
+	Hidden  int `json:"hidden"`
+}
+
+type GuestDeploymentsResponse struct {
+	Summary     GuestDeploymentSummary    `json:"summary"`
+	Deployments []GuestDeploymentResponse `json:"deployments"`
+}
+
 type AdminSessionResponse struct {
 	Role  string `json:"role"`
 	Email string `json:"email"`
@@ -27,6 +38,15 @@ type RedeployRequest struct {
 	Environment map[string]string `json:"environment"`
 }
 
+type DeploymentVisibilityRequest struct {
+	GuestVisible *bool `json:"guestVisible"`
+}
+
+type DeploymentVisibilityResponse struct {
+	App          string `json:"app"`
+	GuestVisible bool   `json:"guestVisible"`
+}
+
 type DeploymentResponse struct {
 	App                  string                      `json:"app"`
 	RepoURL              string                      `json:"repoUrl"`
@@ -39,6 +59,7 @@ type DeploymentResponse struct {
 	PackageManager       string                      `json:"packageManager,omitempty"`
 	EnvironmentVariables []string                    `json:"environmentVariables,omitempty"`
 	Services             []DeploymentServiceResponse `json:"services,omitempty"`
+	GuestVisible         bool                        `json:"guestVisible"`
 
 	Status              string                     `json:"status"`
 	DatabaseAttachments []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`

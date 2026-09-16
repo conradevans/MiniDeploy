@@ -128,6 +128,7 @@ func rollbackDeployment(
 	previous := versions[0]
 	previousRecord := previous.RecordWithFallback(current)
 	previousRecord.DatabaseAttachments = cloneDatabaseAttachments(current.DatabaseAttachments)
+	previousRecord.GuestVisible = current.GuestVisible
 
 	deploymentEvent(
 		current.App,

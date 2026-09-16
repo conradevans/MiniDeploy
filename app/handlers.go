@@ -1016,6 +1016,7 @@ func deploymentResponse(
 		EnvironmentVariables: record.EnvironmentVariables,
 		DatabaseAttachments:  cloneDatabaseAttachments(record.DatabaseAttachments),
 		Services:             deploymentServiceResponses(record),
+		GuestVisible:         record.GuestVisible,
 		Status:               deploymentProjectStatus(record),
 	}
 }

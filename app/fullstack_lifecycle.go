@@ -38,6 +38,7 @@ func newFullstackReleaseRecord(
 		RepoURL:              repoURL,
 		Strategy:             deploymentStrategyFullstackViteNode,
 		Network:              network,
+		GuestVisible:         false,
 		EnvironmentVariables: runtimeEnvironmentNames(environment),
 		Services:             make([]DeploymentServiceRecord, 0, 2),
 	}
@@ -432,6 +433,7 @@ func safeRedeployFullstackLocked(
 		return DeploymentRecord{}, err
 	}
 	candidate.DatabaseAttachments = cloneDatabaseAttachments(old.DatabaseAttachments)
+	candidate.GuestVisible = old.GuestVisible
 	candidate, err = startAndVerifyFullstackRelease(
 		candidate,
 		environmentChange.effective,
@@ -558,6 +560,7 @@ func rollbackFullstackLocked(
 	candidate.Network = network
 	candidate.EnvironmentVariables = runtimeEnvironmentNames(environment)
 	candidate.DatabaseAttachments = cloneDatabaseAttachments(current.DatabaseAttachments)
+	candidate.GuestVisible = current.GuestVisible
 	for index := range candidate.Services {
 		service := &candidate.Services[index]
 		service.Container, err = fullstackServiceContainerName(

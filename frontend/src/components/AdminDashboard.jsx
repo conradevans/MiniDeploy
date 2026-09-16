@@ -6,6 +6,7 @@ import DeployForm from './DeployForm'
 import DeploymentCard from './DeploymentCard'
 import HistoryList from './HistoryList'
 import Modal from './Modal'
+import VisibilityView from './VisibilityView'
 
 
 function adminViewFromPath(pathname) {
@@ -18,6 +19,13 @@ function adminViewFromPath(pathname) {
     pathname.endsWith('/admin/deployments')
   ) {
     return 'deployments'
+  }
+
+  if (
+    pathname === '/admin/visibility' ||
+    pathname.endsWith('/admin/visibility')
+  ) {
+    return 'visibility'
   }
 
   return 'overview'
@@ -41,6 +49,7 @@ export default function AdminDashboard({ apiMode, api: providedApi = null }) {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
   const [operations, setOperations] = useState({})
+  const [visibilityPending, setVisibilityPending] = useState({})
   const [deploying, setDeploying] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -118,6 +127,7 @@ export default function AdminDashboard({ apiMode, api: providedApi = null }) {
       overview: '/admin',
       new: '/admin/new',
       deployments: '/admin/deployments',
+      visibility: '/admin/visibility',
     }[nextView]
 
     if (!href) return
@@ -155,6 +165,66 @@ export default function AdminDashboard({ apiMode, api: providedApi = null }) {
       return false
     } finally {
       setDeploying(false)
+    }
+  }
+
+  async function handleVisibilityChange(app, guestVisible) {
+    const previous = deployments.find(
+      (deployment) => deployment.app === app,
+    )
+    if (!previous) return
+
+    setDeployments((current) =>
+      current.map((deployment) =>
+        deployment.app === app
+          ? { ...deployment, guestVisible }
+          : deployment,
+      ),
+    )
+    setVisibilityPending((current) => ({ ...current, [app]: true }))
+    setNotice('')
+    setError('')
+
+    try {
+      const result = await api.updateGuestVisibility(app, guestVisible)
+      if (!mounted.current) return
+
+      const savedVisibility =
+        typeof result?.guestVisible === 'boolean'
+          ? result.guestVisible
+          : guestVisible
+
+      setDeployments((current) =>
+        current.map((deployment) =>
+          deployment.app === app
+            ? { ...deployment, guestVisible: savedVisibility }
+            : deployment,
+        ),
+      )
+      setNotice(
+        `${app} is now ${
+          savedVisibility ? 'visible' : 'hidden'
+        } in Guest View.`,
+      )
+    } catch (err) {
+      if (!mounted.current) return
+
+      setDeployments((current) =>
+        current.map((deployment) =>
+          deployment.app === app
+            ? { ...deployment, guestVisible: previous.guestVisible }
+            : deployment,
+        ),
+      )
+      setError(`Failed to update ${app} visibility: ${err.message}`)
+    } finally {
+      if (mounted.current) {
+        setVisibilityPending((current) => {
+          const next = { ...current }
+          delete next[app]
+          return next
+        })
+      }
     }
   }
 
@@ -340,6 +410,18 @@ export default function AdminDashboard({ apiMode, api: providedApi = null }) {
                 onClick={() => navigateView('deployments')}
               >
                 Deployments
+              </button>
+
+              <button
+                type="button"
+                className={
+                  view === 'visibility'
+                    ? 'control-nav-item active'
+                    : 'control-nav-item'
+                }
+                onClick={() => navigateView('visibility')}
+              >
+                Visibility
               </button>
             </nav>
 
@@ -674,6 +756,23 @@ export default function AdminDashboard({ apiMode, api: providedApi = null }) {
                   )}
                 </section>
               </section>
+            )}
+
+            {view === 'visibility' && (
+              <>
+                {(notice || error) && (
+                  <div className={`notice ${error ? 'error' : 'success'}`}>
+                    {error || notice}
+                  </div>
+                )}
+
+                <VisibilityView
+                  deployments={deployments}
+                  loading={loading}
+                  pending={visibilityPending}
+                  onToggle={handleVisibilityChange}
+                />
+              </>
             )}
           </div>
         </div>

@@ -10,6 +10,11 @@ export default function GuestDashboard({ api: providedApi = null }) {
     [providedApi],
   )
   const [applications, setApplications] = useState([])
+  const [summary, setSummary] = useState({
+    total: 0,
+    showing: 0,
+    hidden: 0,
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -18,7 +23,10 @@ export default function GuestDashboard({ api: providedApi = null }) {
 
     try {
       const result = await api.getDeployments()
-      setApplications(Array.isArray(result) ? result : [])
+      setApplications(
+        Array.isArray(result?.deployments) ? result.deployments : [],
+      )
+      setSummary(result?.summary || { total: 0, showing: 0, hidden: 0 })
       setError('')
     } catch (err) {
       setError(`Unable to load public applications: ${err.message}`)
@@ -32,10 +40,6 @@ export default function GuestDashboard({ api: providedApi = null }) {
 
     return () => window.clearTimeout(timeout)
   }, [loadApplications])
-
-  const runningCount = applications.filter(
-    (application) => application.status === 'running',
-  ).length
 
   return (
     <main className="guest-page">
@@ -58,12 +62,16 @@ export default function GuestDashboard({ api: providedApi = null }) {
 
           <div className="guest-summary" aria-label="Application summary">
             <div>
-              <span>APPLICATIONS</span>
-              <strong>{applications.length}</strong>
+              <span>TOTAL</span>
+              <strong>{summary.total}</strong>
             </div>
             <div>
-              <span>RUNNING</span>
-              <strong>{runningCount}</strong>
+              <span>SHOWING</span>
+              <strong>{summary.showing}</strong>
+            </div>
+            <div>
+              <span>HIDDEN</span>
+              <strong>{summary.hidden}</strong>
             </div>
           </div>
         </section>
@@ -91,7 +99,7 @@ export default function GuestDashboard({ api: providedApi = null }) {
             <div className="empty-state">Loading public applications…</div>
           ) : applications.length === 0 ? (
             <div className="empty-state">
-              No public applications are available right now.
+              No deployments are currently shared in Guest View.
             </div>
           ) : (
             <div className="guest-application-grid">

@@ -27,6 +27,7 @@ type DeploymentRecord struct {
 	ReactorLabMigration  bool                       `json:"reactorlabMigration,omitempty"`
 	DatabaseAttachments  []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
 	DatabaseDetached     bool                       `json:"databaseDetached,omitempty"`
+	GuestVisible         bool                       `json:"guestVisible"`
 }
 
 type DatabaseAttachmentRecord struct {
@@ -55,6 +56,10 @@ type DeploymentServiceRecord struct {
 
 type DeploymentStore interface {
 	Save(deployment DeploymentRecord) error
+	UpdateGuestVisibility(
+		app string,
+		visible bool,
+	) (DeploymentRecord, error)
 	Get(app string) (DeploymentRecord, error)
 	List() ([]DeploymentRecord, error)
 	Delete(app string) error
@@ -84,6 +89,10 @@ func (s *JSONStore) Save(deployment DeploymentRecord) error {
 
 	for i, existing := range deployments {
 		if existing.App == deployment.App {
+			// Guest View visibility belongs to the logical application, not
+			// an individual lifecycle generation. Only
+			// UpdateGuestVisibility may change it for an existing record.
+			deployment.GuestVisible = existing.GuestVisible
 			deployments[i] = deployment
 			updated = true
 			break
@@ -95,6 +104,34 @@ func (s *JSONStore) Save(deployment DeploymentRecord) error {
 	}
 
 	return s.write(deployments)
+}
+
+func (s *JSONStore) UpdateGuestVisibility(
+	app string,
+	visible bool,
+) (DeploymentRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	deployments, err := s.load()
+	if err != nil {
+		return DeploymentRecord{}, err
+	}
+
+	for i := range deployments {
+		if deployments[i].App != app {
+			continue
+		}
+
+		deployments[i].GuestVisible = visible
+		if err := s.write(deployments); err != nil {
+			return DeploymentRecord{}, err
+		}
+
+		return deployments[i], nil
+	}
+
+	return DeploymentRecord{}, ErrDeploymentNotFound
 }
 
 func (s *JSONStore) Get(app string) (DeploymentRecord, error) {
@@ -169,6 +206,32 @@ func (s *JSONStore) load() ([]DeploymentRecord, error) {
 
 	if err := json.Unmarshal(data, &deployments); err != nil {
 		return nil, err
+	}
+
+	var visibility []struct {
+		GuestVisible *bool `json:"guestVisible"`
+	}
+
+	if err := json.Unmarshal(data, &visibility); err != nil {
+		return nil, err
+	}
+
+	migrated := false
+	for index := range deployments {
+		if visibility[index].GuestVisible != nil {
+			continue
+		}
+
+		// Deployments written before Guest View visibility existed were
+		// already listed publicly, so preserve that behavior explicitly.
+		deployments[index].GuestVisible = true
+		migrated = true
+	}
+
+	if migrated {
+		if err := s.write(deployments); err != nil {
+			return nil, err
+		}
 	}
 
 	return deployments, nil

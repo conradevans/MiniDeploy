@@ -116,6 +116,16 @@ export function createAdminApi(mode, requester = request) {
       )
     },
 
+    updateGuestVisibility(app, guestVisible) {
+      return requester(deploymentPath(app, '/visibility'), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ guestVisible }),
+      })
+    },
+
     rollbackApplication(app) {
       return requester(deploymentPath(app, '/rollback'), {
         method: 'POST',

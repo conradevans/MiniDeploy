@@ -290,6 +290,7 @@ func deployRepository(
 		PackageManager:      plan.PackageManager,
 		PackageInstallMode:  plan.PackageInstallMode,
 		ReactorLabMigration: plan.ReactorLabMigration,
+		GuestVisible:        false,
 		EnvironmentVariables: runtimeEnvironmentNames(
 			environmentChange.effective,
 		),

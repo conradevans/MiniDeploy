@@ -314,6 +314,9 @@ func TestGolfMulletRepositoryProducesCanonicalResources(t *testing.T) {
 	if record.RepoURL != repositoryURL {
 		t.Fatalf("record repository URL = %q; want original %q", record.RepoURL, repositoryURL)
 	}
+	if record.GuestVisible {
+		t.Fatal("new full-stack deployment unexpectedly defaults visible")
+	}
 	metadataStore := NewJSONStore(filepath.Join(t.TempDir(), "deployments.json"))
 	if err := metadataStore.Save(record); err != nil {
 		t.Fatalf("persist canonical record: %v", err)

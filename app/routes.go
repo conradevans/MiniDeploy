@@ -86,6 +86,11 @@ func routes() *http.ServeMux {
 	)
 
 	mux.HandleFunc(
+		"PATCH /deployments/{app}/visibility",
+		deploymentVisibilityHandler,
+	)
+
+	mux.HandleFunc(
 		"DELETE /deployments/{app}",
 		deleteDeploymentHandler,
 	)
@@ -249,6 +254,11 @@ func registerPublicAdminRoutes(
 	admin(
 		"POST /api/admin/deployments/{app}/redeploy",
 		redeployHandler,
+	)
+
+	admin(
+		"PATCH /api/admin/deployments/{app}/visibility",
+		deploymentVisibilityHandler,
 	)
 
 	admin(

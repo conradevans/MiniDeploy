@@ -19,7 +19,7 @@ The frontend uses separate API clients:
 - `src/api/admin.js` uses `/api/admin/*` on the public listener.
 - The same Admin client uses the original relative management paths on the private listener.
 
-The frontend does not decide whether a user is authorized. Cloudflare Access and the Go server protect every public Admin page and API route. Guest safety also does not depend on hidden React controls: the guest API returns a dedicated server-side response containing only `app`, `url`, and `status`.
+The frontend does not decide whether a user is authorized. Cloudflare Access and the Go server protect every public Admin page and API route. Guest safety also does not depend on hidden React controls: the guest API returns server-computed `total`, `showing`, and `hidden` counts plus a `deployments` array containing only Guest View-visible applications. Each detailed item contains only `app`, `url`, and `status`. Hidden applications remain reachable through their direct URLs; visibility controls Guest View listing, not application access.
 
 ## Development
 

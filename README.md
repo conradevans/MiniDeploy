@@ -175,7 +175,7 @@ The public landing page explains MiniDeploy and provides two explicit entry path
 - **Continue as Guest** opens a no-login, read-only view of published applications.
 - **Admin Sign In** enters the Cloudflare Access authentication flow.
 
-Guest Mode calls only `GET /api/guest/deployments`. The backend constructs a dedicated response containing exactly `app`, `url`, and `status`; repository URLs, container names, image names, ports, health paths, logs, history, and management controls are never serialized to guest clients.
+Guest Mode calls only `GET /api/guest/deployments`. The backend returns aggregate visibility counts plus a `deployments` array whose objects contain exactly `app`, `url`, and `status`; hidden deployment details are never serialized to guest clients.
 
 ### Admin Mode
 
@@ -305,6 +305,7 @@ GET    /api/admin/deployments/{app}/history
 POST   /api/admin/deployments/{app}/restart
 POST   /api/admin/deployments/{app}/redeploy
 POST   /api/admin/deployments/{app}/rollback
+PATCH  /api/admin/deployments/{app}/visibility
 DELETE /api/admin/deployments/{app}
 ```
 
@@ -323,6 +324,7 @@ GET    /deployments/{app}/history
 POST   /deployments/{app}/restart
 POST   /deployments/{app}/redeploy
 POST   /deployments/{app}/rollback
+PATCH  /deployments/{app}/visibility
 DELETE /deployments/{app}
 POST   /webhooks/github
 ```
@@ -331,15 +333,26 @@ The webhook endpoint is reachable publicly only through its dedicated Caddy/Clou
 
 ### Guest Data Contract
 
-Guest responses are an array of objects with exactly three fields:
+`GET /api/guest/deployments` returns an aggregate summary and only the deployments currently listed in Guest View:
 
 ```json
 {
-  "app": "example-app",
-  "url": "https://example-app.reactorlab.dev",
-  "status": "running"
+  "summary": {
+    "total": 7,
+    "showing": 2,
+    "hidden": 5
+  },
+  "deployments": [
+    {
+      "app": "example-app",
+      "url": "https://example-app.reactorlab.dev",
+      "status": "running"
+    }
+  ]
 }
 ```
+
+`total` includes every managed deployment, `showing` counts deployments listed in Guest View, and `hidden` counts deployments omitted from that listing. Hidden deployment names, URLs, status, and other identifying details are never returned. Visibility controls Guest View listing only: a hidden application continues to run and remains reachable through its existing direct application URL.
 
 ## Reliability Testing
 

@@ -30,6 +30,10 @@ func deployHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "repoUrl is required", http.StatusBadRequest)
 		return
 	}
+	if err := validateRepositoryURL(req.RepoURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	appName := repoName(req.RepoURL)
 
@@ -1008,6 +1012,7 @@ func deploymentResponse(
 		RepoURL:              record.RepoURL,
 		Container:            record.Container,
 		Image:                record.Image,
+		ImageID:              record.ImageID,
 		Port:                 record.Port,
 		ContainerPort:        record.ContainerPort,
 		HealthPath:           record.HealthPath,
@@ -1017,6 +1022,8 @@ func deploymentResponse(
 		DatabaseAttachments:  cloneDatabaseAttachments(record.DatabaseAttachments),
 		Services:             deploymentServiceResponses(record),
 		GuestVisible:         record.GuestVisible,
+		Source:               cloneDeploymentSource(record.Source),
+		ActivatedAt:          cloneActivationTime(record.ActivatedAt),
 		Status:               deploymentProjectStatus(record),
 	}
 }

@@ -420,6 +420,7 @@ func rollbackCandidateRecord(
 	record.EnvironmentVariables = runtimeEnvironmentNames(
 		environment,
 	)
+	record = activateDeploymentRecord(record)
 
 	return record
 }

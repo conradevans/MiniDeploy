@@ -34,6 +34,12 @@ The result is a small private deployment platform running on real Linux infrastr
 
 MiniDeploy accepts a repository URL, container port, and health-check path. It clones the repository, builds a versioned Docker image, starts the container on an available host port, validates health, persists metadata, and updates Caddy routing.
 
+### Admin Source Provenance
+
+For new deployments, MiniDeploy records the exact Git commit and checked-out branch from the checkout that was actually built. When a GitHub URL can be recognized safely, private Admin metadata also includes the canonical owner/repository identity. New activations include an activation timestamp. Freshly built deployments also record immutable local Docker image IDs; full-stack builds record an image ID for each service.
+
+Older deployment and history records may report unknown provenance because MiniDeploy does not invent commits, activation times, or image IDs for legacy data. The current deployment API still clones the repository default branch, and webhook redeployment remains main-only. Explicit branch or ref selection is planned for a later phase and is not available yet.
+
 ### Zero-Downtime Redeployments
 
 Redeployments use a blue-green style workflow:

@@ -58,6 +58,10 @@ func deployRepository(
 	environment map[string]string,
 	databaseID string,
 ) (deployed DeploymentRecord, deployErr error) {
+	if err := validateRepositoryURL(repoURL); err != nil {
+		return DeploymentRecord{}, err
+	}
+
 	deployMu.Lock()
 	defer deployMu.Unlock()
 
@@ -146,6 +150,14 @@ func deployRepository(
 		)
 	}
 
+	source, err := inspectDeploymentSource(deployPath, repoURL)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"inspect cloned source: %w",
+			err,
+		)
+	}
+
 	deploymentEvent(appName, "Repository cloned.")
 	deploymentEvent(appName, "Inspecting repository...")
 
@@ -207,6 +219,7 @@ func deployRepository(
 		record, err := deployFullstackProject(
 			appName,
 			repoURL,
+			source,
 			plan,
 			environmentChange,
 			databaseAttachments,
@@ -269,6 +282,12 @@ func deployRepository(
 		imageName,
 	)
 
+	imageID, err := inspectBuiltImageID(imageName)
+	if err != nil {
+		_, _ = runCommand("", "docker", "image", "rm", imageName)
+		return DeploymentRecord{}, err
+	}
+
 	port, err := initialFindAvailablePort(
 		minDeployPort,
 		maxDeployPort,
@@ -283,6 +302,7 @@ func deployRepository(
 		RepoURL:             repoURL,
 		Container:           containerName,
 		Image:               imageName,
+		ImageID:             imageID,
 		Port:                port,
 		ContainerPort:       containerPort,
 		HealthPath:          healthPath,
@@ -290,6 +310,7 @@ func deployRepository(
 		PackageManager:      plan.PackageManager,
 		PackageInstallMode:  plan.PackageInstallMode,
 		ReactorLabMigration: plan.ReactorLabMigration,
+		Source:              cloneDeploymentSource(source),
 		GuestVisible:        false,
 		EnvironmentVariables: runtimeEnvironmentNames(
 			environmentChange.effective,
@@ -443,6 +464,8 @@ func deployRepository(
 		)
 	}
 
+	record = activateDeploymentRecord(record)
+
 	if err := store.Save(record); err != nil {
 		if rollbackErr := environmentChange.Rollback(); rollbackErr != nil {
 			log.Printf(
@@ -538,6 +561,9 @@ func safeRedeploy(
 
 	if old.DatabaseDetached {
 		return DeploymentRecord{}, ErrDatabaseDetached
+	}
+	if err := validateRepositoryURL(old.RepoURL); err != nil {
+		return DeploymentRecord{}, err
 	}
 
 	deployMu.Lock()
@@ -654,6 +680,14 @@ func safeRedeploy(
 		)
 	}
 
+	source, err := inspectDeploymentSource(candidatePath, old.RepoURL)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"inspect candidate source: %w",
+			err,
+		)
+	}
+
 	deploymentEvent(
 		old.App,
 		"Repository cloned. Reusing persisted %s strategy...",
@@ -709,6 +743,12 @@ func safeRedeploy(
 		"Candidate Docker image built successfully: %s",
 		newImage,
 	)
+
+	imageID, err := inspectBuiltImageID(newImage)
+	if err != nil {
+		_, _ = runCommand("", "docker", "image", "rm", newImage)
+		return DeploymentRecord{}, err
+	}
 
 	runtimeRecord := old
 	runtimeRecord.Strategy = plan.Strategy
@@ -858,6 +898,7 @@ func safeRedeploy(
 	newRecord := old
 	newRecord.Container = candidateContainer
 	newRecord.Image = newImage
+	newRecord.ImageID = imageID
 	newRecord.Port = candidatePort
 	newRecord.ContainerPort = plan.ContainerPort
 	newRecord.HealthPath = plan.HealthPath
@@ -865,10 +906,10 @@ func safeRedeploy(
 	newRecord.PackageManager = plan.PackageManager
 	newRecord.PackageInstallMode = plan.PackageInstallMode
 	newRecord.ReactorLabMigration = plan.ReactorLabMigration
+	newRecord.Source = cloneDeploymentSource(source)
 	newRecord.EnvironmentVariables = runtimeEnvironmentNames(
 		environmentChange.effective,
 	)
-
 	if err := environmentChange.Commit(); err != nil {
 		cleanupCandidate(true)
 
@@ -877,6 +918,8 @@ func safeRedeploy(
 			err,
 		)
 	}
+
+	newRecord = activateDeploymentRecord(newRecord)
 
 	// Persist the candidate as the desired active deployment.
 	// The old container is deliberately still running here.

@@ -91,7 +91,7 @@ func newFullstackReleaseRecord(
 }
 
 func buildFullstackRelease(
-	record DeploymentRecord,
+	record *DeploymentRecord,
 	plan deploymentBuildPlan,
 ) error {
 	built := make([]DeploymentServiceRecord, 0, 2)
@@ -99,7 +99,8 @@ func buildFullstackRelease(
 		fullstackFrontendService,
 		fullstackBackendService,
 	} {
-		service, _ := deploymentServiceByName(record, name)
+		service, _ := deploymentServiceByName(*record, name)
+		serviceIndex := deploymentServiceIndex(record.Services, name)
 		servicePlan, _ := fullstackBuildServiceByName(plan, name)
 		deploymentEvent(
 			record.App,
@@ -129,6 +130,18 @@ func buildFullstackRelease(
 			return fmt.Errorf("build %s image: %w", name, err)
 		}
 		built = append(built, service)
+		imageID, err := inspectBuiltImageID(service.Image)
+		if err != nil {
+			for _, builtService := range built {
+				_ = removeFullstackImage(
+					record.App,
+					builtService.Name,
+					builtService.Image,
+				)
+			}
+			return fmt.Errorf("inspect %s image identity: %w", name, err)
+		}
+		record.Services[serviceIndex].ImageID = imageID
 		deploymentEvent(
 			record.App,
 			"%s image built successfully.",
@@ -285,6 +298,7 @@ func deploymentServiceIndex(
 func deployFullstackProject(
 	app string,
 	repoURL string,
+	source *DeploymentSourceRecord,
 	plan deploymentBuildPlan,
 	environmentChange *runtimeEnvironmentChange,
 	databaseAttachments []DatabaseAttachmentRecord,
@@ -301,9 +315,10 @@ func deployFullstackProject(
 	if err != nil {
 		return DeploymentRecord{}, err
 	}
+	record.Source = cloneDeploymentSource(source)
 	record.DatabaseAttachments = cloneDatabaseAttachments(databaseAttachments)
 
-	if err := buildFullstackRelease(record, plan); err != nil {
+	if err := buildFullstackRelease(&record, plan); err != nil {
 		return DeploymentRecord{}, err
 	}
 
@@ -324,6 +339,8 @@ func deployFullstackProject(
 			err,
 		)
 	}
+
+	record = activateDeploymentRecord(record)
 
 	if err := store.Save(record); err != nil {
 		_ = environmentChange.Rollback()
@@ -409,6 +426,14 @@ func safeRedeployFullstackLocked(
 		return DeploymentRecord{}, fmt.Errorf("git clone candidate: %w", err)
 	}
 
+	source, err := inspectDeploymentSource(candidatePath, old.RepoURL)
+	if err != nil {
+		return DeploymentRecord{}, fmt.Errorf(
+			"inspect full-stack candidate source: %w",
+			err,
+		)
+	}
+
 	plan, err := persistedFullstackBuildPlan(old, candidatePath)
 	if err != nil {
 		return DeploymentRecord{}, fmt.Errorf(
@@ -429,9 +454,10 @@ func safeRedeployFullstackLocked(
 	if err != nil {
 		return DeploymentRecord{}, err
 	}
-	if err := buildFullstackRelease(candidate, plan); err != nil {
+	if err := buildFullstackRelease(&candidate, plan); err != nil {
 		return DeploymentRecord{}, err
 	}
+	candidate.Source = cloneDeploymentSource(source)
 	candidate.DatabaseAttachments = cloneDatabaseAttachments(old.DatabaseAttachments)
 	candidate.GuestVisible = old.GuestVisible
 	candidate, err = startAndVerifyFullstackRelease(
@@ -450,6 +476,8 @@ func safeRedeployFullstackLocked(
 			err,
 		)
 	}
+	candidate = activateDeploymentRecord(candidate)
+
 	if err := store.Save(candidate); err != nil {
 		_ = environmentChange.Rollback()
 		_ = cleanupFullstackRelease(candidate, true)
@@ -584,6 +612,8 @@ func rollbackFullstackLocked(
 		_ = cleanupFullstackRelease(candidate, false)
 		return DeploymentRecord{}, err
 	}
+	candidate = activateDeploymentRecord(candidate)
+
 	if err := store.Save(candidate); err != nil {
 		_ = cleanupFullstackRelease(candidate, false)
 		return DeploymentRecord{}, fmt.Errorf(

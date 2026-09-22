@@ -35,6 +35,12 @@ func (recorder *initialDeployCommandRecorder) run(
 		return "", nil
 	}
 
+	if len(args) >= 5 && args[0] == "image" &&
+		args[1] == "inspect" && args[2] == "--format" {
+
+		return "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", nil
+	}
+
 	joined := strings.Join(args, " ")
 	recorder.commands = append(recorder.commands, joined)
 	if args[0] == "run" || args[0] == "create" {

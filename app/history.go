@@ -14,6 +14,7 @@ type DeploymentVersion struct {
 	RepoURL             string                    `json:"repoUrl"`
 	Container           string                    `json:"container"`
 	Image               string                    `json:"image"`
+	ImageID             string                    `json:"imageId,omitempty"`
 	Port                int                       `json:"port"`
 	ContainerPort       int                       `json:"containerPort"`
 	HealthPath          string                    `json:"healthPath"`
@@ -22,6 +23,8 @@ type DeploymentVersion struct {
 	PackageInstallMode  string                    `json:"packageInstallMode,omitempty"`
 	Services            []DeploymentServiceRecord `json:"services,omitempty"`
 	ReactorLabMigration bool                      `json:"reactorlabMigration,omitempty"`
+	Source              *DeploymentSourceRecord   `json:"source,omitempty"`
+	ActivatedAt         *time.Time                `json:"activatedAt,omitempty"`
 	DeployedAt          time.Time                 `json:"deployedAt"`
 }
 
@@ -33,6 +36,7 @@ func deploymentVersion(record DeploymentRecord) DeploymentVersion {
 		RepoURL:             record.RepoURL,
 		Container:           record.Container,
 		Image:               record.Image,
+		ImageID:             record.ImageID,
 		Port:                record.Port,
 		ContainerPort:       record.ContainerPort,
 		HealthPath:          record.HealthPath,
@@ -41,6 +45,8 @@ func deploymentVersion(record DeploymentRecord) DeploymentVersion {
 		PackageInstallMode:  record.PackageInstallMode,
 		Services:            cloneDeploymentServices(record.Services),
 		ReactorLabMigration: record.ReactorLabMigration,
+		Source:              cloneDeploymentSource(record.Source),
+		ActivatedAt:         cloneActivationTime(record.ActivatedAt),
 		DeployedAt:          time.Now().UTC(),
 	}
 }
@@ -52,6 +58,7 @@ func (v DeploymentVersion) Record() DeploymentRecord {
 			RepoURL:             v.RepoURL,
 			Container:           v.Container,
 			Image:               v.Image,
+			ImageID:             v.ImageID,
 			Port:                v.Port,
 			ContainerPort:       v.ContainerPort,
 			HealthPath:          v.HealthPath,
@@ -60,6 +67,8 @@ func (v DeploymentVersion) Record() DeploymentRecord {
 			PackageInstallMode:  v.PackageInstallMode,
 			Services:            cloneDeploymentServices(v.Services),
 			ReactorLabMigration: v.ReactorLabMigration,
+			Source:              cloneDeploymentSource(v.Source),
+			ActivatedAt:         cloneActivationTime(v.ActivatedAt),
 		},
 	)
 }
@@ -98,6 +107,9 @@ func (v DeploymentVersion) RecordWithFallback(
 		fallback.Strategy == deploymentStrategyFullstackViteNode {
 
 		record.Services = cloneDeploymentServices(fallback.Services)
+		for index := range record.Services {
+			record.Services[index].ImageID = ""
+		}
 	}
 
 	return normalizeDeploymentRecord(record)
@@ -136,6 +148,10 @@ func (s *JSONHistoryStore) List(app string) ([]DeploymentVersion, error) {
 func (s *JSONHistoryStore) Push(
 	record DeploymentRecord,
 ) ([]DeploymentVersion, error) {
+	if err := validateRepositoryURL(record.RepoURL); err != nil {
+		return nil, err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -182,6 +198,12 @@ func (s *JSONHistoryStore) Set(
 	app string,
 	versions []DeploymentVersion,
 ) ([]DeploymentVersion, error) {
+	for _, version := range versions {
+		if err := validateRepositoryURL(version.RepoURL); err != nil {
+			return nil, err
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

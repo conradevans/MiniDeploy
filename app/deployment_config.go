@@ -105,6 +105,7 @@ func normalizeDeploymentRecord(
 		if frontend, ok := deploymentServiceByName(record, fullstackFrontendService); ok {
 			record.Container = frontend.Container
 			record.Image = frontend.Image
+			record.ImageID = frontend.ImageID
 			record.Port = frontend.Port
 			record.ContainerPort = frontend.ContainerPort
 			record.HealthPath = frontend.HealthPath

@@ -108,6 +108,9 @@ func (r *fullstackCommandRecorder) run(
 			return "", nil
 		}
 	case "image":
+		if len(args) >= 5 && args[1] == "inspect" && args[2] == "--format" {
+			return "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n", nil
+		}
 		if len(args) > 1 && args[1] == "rm" {
 			r.removed = append(r.removed, args[len(args)-1])
 		}

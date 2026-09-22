@@ -406,6 +406,7 @@ func deploymentServiceResponses(
 			Strategy:           service.Strategy,
 			Container:          service.Container,
 			Image:              service.Image,
+			ImageID:            service.ImageID,
 			Port:               service.Port,
 			ContainerPort:      service.ContainerPort,
 			HealthPath:         service.HealthPath,

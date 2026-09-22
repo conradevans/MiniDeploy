@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type HealthResponse struct {
 	Status string `json:"status"`
 }
@@ -52,6 +54,7 @@ type DeploymentResponse struct {
 	RepoURL              string                      `json:"repoUrl"`
 	Container            string                      `json:"container"`
 	Image                string                      `json:"image"`
+	ImageID              string                      `json:"imageId,omitempty"`
 	Port                 int                         `json:"port"`
 	ContainerPort        int                         `json:"containerPort"`
 	HealthPath           string                      `json:"healthPath"`
@@ -60,6 +63,8 @@ type DeploymentResponse struct {
 	EnvironmentVariables []string                    `json:"environmentVariables,omitempty"`
 	Services             []DeploymentServiceResponse `json:"services,omitempty"`
 	GuestVisible         bool                        `json:"guestVisible"`
+	Source               *DeploymentSourceRecord     `json:"source,omitempty"`
+	ActivatedAt          *time.Time                  `json:"activatedAt,omitempty"`
 
 	Status              string                     `json:"status"`
 	DatabaseAttachments []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
@@ -71,6 +76,7 @@ type DeploymentServiceResponse struct {
 	Strategy           string `json:"strategy"`
 	Container          string `json:"container"`
 	Image              string `json:"image"`
+	ImageID            string `json:"imageId,omitempty"`
 	Port               int    `json:"port"`
 	ContainerPort      int    `json:"containerPort"`
 	HealthPath         string `json:"healthPath"`

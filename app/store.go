@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 var ErrDeploymentNotFound = errors.New("deployment not found")
@@ -15,6 +16,7 @@ type DeploymentRecord struct {
 	RepoURL              string                     `json:"repoUrl"`
 	Container            string                     `json:"container"`
 	Image                string                     `json:"image"`
+	ImageID              string                     `json:"imageId,omitempty"`
 	Port                 int                        `json:"port"`
 	ContainerPort        int                        `json:"containerPort"`
 	HealthPath           string                     `json:"healthPath"`
@@ -28,6 +30,8 @@ type DeploymentRecord struct {
 	DatabaseAttachments  []DatabaseAttachmentRecord `json:"databaseAttachments,omitempty"`
 	DatabaseDetached     bool                       `json:"databaseDetached,omitempty"`
 	GuestVisible         bool                       `json:"guestVisible"`
+	Source               *DeploymentSourceRecord    `json:"source,omitempty"`
+	ActivatedAt          *time.Time                 `json:"activatedAt,omitempty"`
 }
 
 type DatabaseAttachmentRecord struct {
@@ -46,6 +50,7 @@ type DeploymentServiceRecord struct {
 	Strategy            string `json:"strategy"`
 	Container           string `json:"container"`
 	Image               string `json:"image"`
+	ImageID             string `json:"imageId,omitempty"`
 	Port                int    `json:"port"`
 	ContainerPort       int    `json:"containerPort"`
 	HealthPath          string `json:"healthPath"`
@@ -77,6 +82,10 @@ func NewJSONStore(path string) *JSONStore {
 }
 
 func (s *JSONStore) Save(deployment DeploymentRecord) error {
+	if err := validateRepositoryURL(deployment.RepoURL); err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
